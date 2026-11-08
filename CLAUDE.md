@@ -13,6 +13,10 @@ Stack: Vite + TypeScript, Canvas 2D (or PixiJS), no runtime deps on external ser
 
 ## Docs
 
+Read before any work:
+- [DOMAIN.md](DOMAIN.md): what the app is, game rules, scope, and agent boundaries. Stay inside it; ask before going beyond it.
+- [ARCHITECTURE.md](ARCHITECTURE.md): tools, module layout, data model, loop, rendering, and performance measurement.
+
 Keep README.md updated with every design decision (architecture, rendering, bottlenecks, optimizations, measurement).
 
 ## Commands
