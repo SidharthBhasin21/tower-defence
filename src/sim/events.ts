@@ -16,6 +16,14 @@ export const Ev = {
   PlaceFailed: 4,
   /** A tower fired. a = tower type, b = tower index. */
   Shot: 5,
+  /** A wave started. a = wave number (1-based), b = early-call gold paid (0 if not early). */
+  WaveStart: 6,
+  /** Every enemy of a wave is gone. a = wave number, b = bonus gold. */
+  WaveCleared: 7,
+  /** All 50 waves cleared. a = final score. */
+  Victory: 8,
+  /** Lives reached 0. a = final score, b = waves cleared. */
+  Defeat: 9,
 } as const
 export type EventType = (typeof Ev)[keyof typeof Ev]
 

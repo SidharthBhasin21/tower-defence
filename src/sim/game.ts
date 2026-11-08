@@ -1,6 +1,11 @@
 import {
   ARMOR_MIN_FRACTION,
+  CLEAR_GOLD_BASE,
+  CLEAR_GOLD_PER_WAVE,
+  CLEAR_SCORE_PER_WAVE,
   DT,
+  EARLY_GOLD_PER_SEC,
+  EARLY_SCORE_PER_SEC,
   ENEMIES,
   HIT_FLASH,
   LANE_MAX,
@@ -10,9 +15,13 @@ import {
   PATH_SAMPLE_STEP,
   PROJECTILE_LIFE,
   SCORE_PER_BOUNTY,
+  SCORE_WAVE_SCALE,
   START_GOLD,
   START_LIVES,
   TOWERS,
+  WAVE_COUNT,
+  WAVE_GAP,
+  WIN_SCORE_PER_LIFE,
 } from '../config.ts'
 import { Rng } from '../rng.ts'
 import { Cmd, CommandQueue } from './commands.ts'
@@ -23,6 +32,17 @@ import { GameMap } from './map.ts'
 import { SampledPath } from './path.ts'
 import { ProjectilePool, stepProjectiles } from './projectiles.ts'
 import { TowerStore, stepTowers } from './towers.ts'
+import { WAVES, WaveScheduler } from './waves.ts'
+
+/** Where the run stands (DOMAIN.md §2.6). Title and Paused are client states, not sim ones. */
+export const Phase = {
+  Playing: 0,
+  Won: 1,
+  Lost: 2,
+} as const
+export type PhaseId = (typeof Phase)[keyof typeof Phase]
+
+const WAVE_GAP_STEPS = Math.round(WAVE_GAP / DT)
 
 /** Why a build was or wasn't allowed. */
 export const PlaceResult = {
@@ -53,8 +73,12 @@ export class Game {
   readonly commands = new CommandQueue(256)
   /** Shared scratch buffer for grid queries (one query at a time). */
   readonly queryBuf = new Int32Array(MAX_ENEMIES)
+  readonly scheduler = new WaveScheduler()
   readonly rng: Rng
   private readonly seed: number
+  /** Per wave index: enemies not yet spawned, and enemies not yet gone (unspawned + alive). */
+  private readonly waveToSpawn = new Int32Array(WAVE_COUNT)
+  private readonly waveLeft = new Int32Array(WAVE_COUNT)
 
   /** Number of fixed steps taken since the game started. */
   tick = 0
@@ -64,6 +88,16 @@ export class Game {
   kills = 0
   /** Multiplies every tower's fire rate. 1 in play; raised by the stress scenario. */
   fireRateMul = 1
+  phase: PhaseId = Phase.Playing
+  /** Waves started so far (0 before the first; WAVE_COUNT once the last has started). */
+  wave = 0
+  /** Waves fully cleared. */
+  cleared = 0
+  /**
+   * Steps until the next wave starts on its own, or -1 when no countdown is
+   * running (before wave 1, while a wave is still spawning, or after the last).
+   */
+  countdown = -1
 
   constructor(seed = 1) {
     this.seed = seed
@@ -80,13 +114,16 @@ export class Game {
 
   /** Advances the game by one fixed step (ARCHITECTURE.md §4.4). */
   step(): void {
+    if (this.phase !== Phase.Playing) return
     this.tick++
     this.applyCommands()
+    this.scheduler.step(this)
     this.stepEnemies()
     this.grid.rebuild(this.enemies)
     stepTowers(this)
     stepProjectiles(this)
     this.enemies.flush()
+    this.stepWaves()
   }
 
   reset(): void {
@@ -96,6 +133,13 @@ export class Game {
     this.score = 0
     this.kills = 0
     this.fireRateMul = 1
+    this.phase = Phase.Playing
+    this.wave = 0
+    this.cleared = 0
+    this.countdown = -1
+    this.waveToSpawn.fill(0)
+    this.waveLeft.fill(0)
+    this.scheduler.reset()
     this.rng.reseed(this.seed)
     this.enemies.reset()
     this.towers.reset()
@@ -115,6 +159,100 @@ export class Game {
   /** Bound once so draining allocates nothing. */
   private readonly onCommand = (type: number, a: number, b: number, c: number): void => {
     if (type === Cmd.Place) this.placeTower(a, b, c)
+    else if (type === Cmd.NextWave) this.callNextWave()
+  }
+
+  // --------------------------------------------------------------- waves
+
+  /** True when the player may start the next wave now. */
+  canCallWave(): boolean {
+    return this.phase === Phase.Playing && this.wave < WAVE_COUNT && (this.wave === 0 || this.countdown >= 0)
+  }
+
+  /** Gold the player would get for calling the next wave right now. */
+  earlyBonus(): number {
+    return this.wave > 0 && this.countdown > 0 ? Math.ceil(this.countdown * DT) * EARLY_GOLD_PER_SEC : 0
+  }
+
+  /**
+   * Starts the next wave if allowed. Calling during the countdown pays gold
+   * and score for the seconds skipped. Returns whether a wave started.
+   */
+  callNextWave(): boolean {
+    if (!this.canCallWave()) return false
+    const gold = this.earlyBonus()
+    if (gold > 0) {
+      this.gold += gold
+      this.score += Math.ceil(this.countdown * DT) * EARLY_SCORE_PER_SEC
+    }
+    this.startWave(gold)
+    return true
+  }
+
+  private startWave(earlyGold: number): void {
+    const wi = this.wave++
+    const queued = this.scheduler.start(wi)
+    this.waveToSpawn[wi] = queued
+    this.waveLeft[wi] = queued
+    this.countdown = -1
+    this.events.push(Ev.WaveStart, wi + 1, earlyGold)
+  }
+
+  /** Enemies of the newest wave still to spawn (for the HUD). */
+  get spawning(): number {
+    return this.wave > 0 ? this.waveToSpawn[this.wave - 1] : 0
+  }
+
+  /** Spawns one enemy for wave index `wi`, scaled for that wave. Called by the scheduler. */
+  spawnFromWave(type: number, pathId: number, wi: number): void {
+    this.waveToSpawn[wi]--
+    const s = this.spawnEnemy(type, pathId)
+    if (s < 0) {
+      this.waveLeft[wi]-- // pool full: the enemy never existed
+      return
+    }
+    const e = this.enemies
+    e.hp[s] = e.maxHp[s] = ENEMIES[type].hp * WAVES[wi].hpMul
+    e.waveId[s] = wi
+  }
+
+  /** An enemy left play by dying or leaking. */
+  private enemyGone(s: number): void {
+    const wi = this.enemies.waveId[s]
+    if (wi >= 0) this.waveLeft[wi]--
+  }
+
+  /** Countdown, wave-clear bonuses, and the win and loss checks (step phase 9). */
+  private stepWaves(): void {
+    if (this.lives <= 0) {
+      this.phase = Phase.Lost
+      this.events.push(Ev.Defeat, this.score, this.cleared)
+      return
+    }
+    // Waves clear in any order once every enemy in them is gone.
+    for (let wi = this.cleared; wi < this.wave; wi++) {
+      if (this.waveLeft[wi] !== 0) continue
+      this.waveLeft[wi] = -1 // mark as paid
+      const n = wi + 1
+      const gold = CLEAR_GOLD_BASE + CLEAR_GOLD_PER_WAVE * n
+      this.gold += gold
+      this.score += CLEAR_SCORE_PER_WAVE * n
+      this.events.push(Ev.WaveCleared, n, gold)
+    }
+    while (this.cleared < this.wave && this.waveLeft[this.cleared] === -1) this.cleared++
+    if (this.cleared === WAVE_COUNT) {
+      this.score += this.lives * WIN_SCORE_PER_LIFE
+      this.phase = Phase.Won
+      this.events.push(Ev.Victory, this.score)
+      return
+    }
+    // Countdown to the next wave starts once the newest wave has fully spawned.
+    if (this.wave === 0 || this.wave === WAVE_COUNT) return
+    if (this.countdown < 0) {
+      if (this.waveToSpawn[this.wave - 1] === 0) this.countdown = WAVE_GAP_STEPS
+    } else if (--this.countdown <= 0) {
+      this.startWave(0)
+    }
   }
 
   // -------------------------------------------------------------- towers
@@ -213,10 +351,12 @@ export class Game {
   private killEnemy(s: number): void {
     const type = this.enemies.type[s]
     const bounty = ENEMIES[type].bounty
+    const wi = this.enemies.waveId[s]
     this.gold += bounty
-    this.score += bounty * SCORE_PER_BOUNTY
+    this.score += Math.round(bounty * SCORE_PER_BOUNTY * (1 + SCORE_WAVE_SCALE * Math.max(wi, 0)))
     this.kills++
     this.events.push(Ev.Kill, type, bounty, s)
+    this.enemyGone(s)
     this.enemies.kill(s)
   }
 
@@ -265,6 +405,7 @@ export class Game {
     const loss = Math.min(ENEMIES[type].leak, this.lives)
     this.lives -= loss
     this.events.push(Ev.Leak, type, loss)
+    this.enemyGone(s)
     this.enemies.kill(s)
   }
 }

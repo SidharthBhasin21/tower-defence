@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DT, ENEMIES, EnemyType, MAX_ENEMIES, START_LIVES } from '../src/config.ts'
-import { DemoSpawner } from '../src/sim/demo.ts'
+import { Cmd } from '../src/sim/commands.ts'
 import { Ev } from '../src/sim/events.ts'
 import { Game } from '../src/sim/game.ts'
 
@@ -73,12 +73,8 @@ describe('Game: enemies on paths', () => {
   it('is deterministic for the same seed', () => {
     const run = (): Float32Array => {
       const g = new Game(77)
-      const demo = new DemoSpawner()
-      demo.requestBurst(40)
-      for (let i = 0; i < 3000; i++) {
-        demo.step(g)
-        g.step()
-      }
+      g.commands.push(Cmd.NextWave)
+      for (let i = 0; i < 3000; i++) g.step()
       const e = g.enemies
       return Float32Array.from([g.lives, e.aliveCount, ...e.x.subarray(0, 200), ...e.lane.subarray(0, 200)])
     }

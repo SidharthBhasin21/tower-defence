@@ -68,7 +68,7 @@ The tools below are excluded by decision. Adding any of them needs the user's ap
 ```
 index.html              Canvas element and HUD markup
 src/
-  main.ts               Bootstrap: build systems, start the loop, route URL modes (?stress, ?bench)
+  main.ts               Bootstrap: build systems, start the loop, route URL modes (?stress, ?bench, ?zoom, ?play); client states (title, pause, speed, restart)
   loop.ts               The ONE requestAnimationFrame loop: fixed-step accumulator and render call
   config.ts             All tunable data: tower, enemy and economy definitions, capacities
   rng.ts                Seeded PRNG (mulberry32); gameplay never calls Math.random
@@ -80,12 +80,11 @@ src/
     towers.ts           Tower storage, targeting, firing
     projectiles.ts      Projectile pool (dense SoA, swap-remove)
     grid.ts             Uniform spatial hash, rebuilt each step by counting sort
-    waves.ts            Generates the 50 waves; runtime spawn scheduler
+    waves.ts            Generates the 50 waves; runtime spawn scheduler (fixed group list)
     fx.ts               Particles, beams, rings, floating text (visual-only pools)
     ring.ts             Preallocated integer ring buffer shared by events and commands
     events.ts           Sim → client events (sound, toasts, UI)
     commands.ts         Player → sim commands, applied at the start of the next step
-    demo.ts             TEMPORARY (features 2–4): trickle and burst Grunt spawns, replaced by waves
     stress.ts           Stress scenario: 100 towers, tops up to 5,000 enemies and 1,000+ projectiles
     bot.ts              Scripted player for balance tests and the full-run benchmark
   render/
@@ -97,7 +96,8 @@ src/
   ui/
     debug.ts            TEMPORARY (features 2–8): lives and enemy readout, replaced by the HUD
     hud.ts              DOM HUD; writes only values that changed
-    screens.ts          Title, pause, victory, game-over screens
+    screens.ts          Title, pause, restart confirmation, victory, game-over screens
+    storage.ts          localStorage wrapper: best score and settings, all in try/catch
     input.ts            Camera pan and zoom; turns short presses into click/cancel/hover hooks
     controls.ts         Build mode, hover tile and selection; queues commands
   audio/
@@ -112,7 +112,7 @@ bench/results/          Benchmark output (JSON)
 README.md               Architecture, rendering, bottlenecks, optimizations, measurement
 ```
 
-**Dev-only hook:** in dev builds `main.ts` puts `{ game, camera, renderer, demo, loop }` on `window.__td` for `scripts/shot.mjs` and console debugging. Production builds leave it out.
+**Dev-only hook:** in dev builds `main.ts` puts `{ game, camera, renderer, controls, screens, loop, recorder }` on `window.__td` for `scripts/shot.mjs` and console debugging. Production builds leave it out.
 
 **Dependency direction:** `sim/` imports only `config.ts` and `rng.ts`. `render/`, `ui/`, `audio/` and `perf/` read the sim's state but never change it, except that input sends commands. Nothing in `sim/` imports from those folders.
 
@@ -196,6 +196,15 @@ Each step runs these phases in this order:
 - **Waves are generated, not hand-written.** `waves.ts` builds all 50 waves at startup from difficulty curves (health and count multipliers per wave) and a schedule for when each enemy type first appears.
 - **Each wave is a list of spawn groups.** A group has `{ type, count, interval, delay, pathMask }`.
 - **One scheduler spawns everything.** It ticks a fixed-capacity list of active groups, so waves called early can overlap.
+- **Curves (tuned):**
+  - Health multiplier: `1 + 0.09n + 0.0035n²`, where n = wave − 1.
+  - Budget: `10 + 1.5n + 0.007n²` Grunt-equivalents, split across the roster types present.
+  - Spawn intervals shrink to 35%.
+- **Wave bookkeeping:**
+  - Per-wave counters track enemies still to spawn and enemies still in play.
+  - A wave is cleared when its in-play count reaches 0, and the clear pays `20 + 2·wave` gold.
+  - The countdown (20 s) starts when the newest wave has fully spawned. Calling early is allowed only then, and pays 1 gold per second skipped.
+- **Game phase in the sim:** Playing, Won or Lost. When the game is won or lost, `step()` is a no-op. Title, Paused and the restart confirmation are client states that pause the `FixedStepper`.
 
 ### 4.6 Sim → client events
 

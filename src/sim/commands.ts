@@ -8,6 +8,8 @@ import { IntRing } from './ring.ts'
 export const Cmd = {
   /** Build a tower. a = tower type, b = tile x, c = tile y. */
   Place: 1,
+  /** Start the next wave now (early calls pay a bonus). No arguments. */
+  NextWave: 2,
 } as const
 export type CommandType = (typeof Cmd)[keyof typeof Cmd]
 

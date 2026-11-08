@@ -2,11 +2,12 @@
 // real requestAnimationFrame), optionally runs a few actions, prints game
 // state and saves a screenshot.
 //
-//   node scripts/shot.mjs [url] [--wait ms] [--keys KeyG,KeyG] [--build 7,5;8,5]
+//   node scripts/shot.mjs [url] [--wait ms] [--keys Space,KeyF] [--build 7,5;8,5]
 //                         [--hover tx,ty] [--out file.png] [--headed]
 //
 // --build presses "1" and Shift-clicks each tile (tile coords), like a player.
 // --hover leaves the pointer over a tile in build mode, to show the preview.
+// Pass a URL with ?play to skip the title screen.
 import { chromium } from 'playwright-core'
 
 const args = process.argv.slice(2)
@@ -68,6 +69,11 @@ const state = await page.evaluate(() => {
     towers: game.towers.count,
     projectiles: game.projectiles.count,
     enemies: game.enemies.aliveCount,
+    wave: game.wave,
+    cleared: game.cleared,
+    countdown: game.countdown,
+    phase: game.phase,
+    screen: td.screens.current,
     drawn: renderer.drawnEnemies,
   }
 })

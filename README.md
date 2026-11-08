@@ -2,7 +2,12 @@
 
 A single-player tower defense game for desktop browsers. It runs entirely offline, with no server and no external assets. You defend a base against 50 waves by placing, upgrading and selling towers that fire automatically.
 
-> **Status:** in development, being built feature by feature. Done so far: **feature 4 (performance check)** on top of feature 3 (first tower). This is the first playable version: build Bolt towers that shoot Grunts for gold and score. A temporary spawner and readout stand in for waves and the HUD, and there's no game over yet.
+> **Status:** in development, being built feature by feature. Done so far: **feature 5 (waves and game states)**. The game is playable from start to finish:
+> - 50 waves with a countdown between them, plus a bonus for calling the next wave early.
+> - Victory and game-over screens, with the best score kept on this device.
+> - Pause, three game speeds, and restart.
+>
+> For now there's only one tower type (Bolt) and one enemy type (Grunt), and a temporary readout stands in for the HUD.
 
 ### Controls so far
 
@@ -15,10 +20,13 @@ A single-player tower defense game for desktop browsers. It runs entirely offlin
 | Shift + click | Place and keep building |
 | Click a tower | Select it and show its range |
 | Right-click / `Esc` | Stop building, or deselect |
-| `G` | Spawn 50 Grunts (temporary, until waves arrive) |
+| `Space` | Start the next wave (early during the countdown pays bonus gold) |
+| `P` | Pause or resume |
+| `F` | Cycle game speed: 1×, 2×, 4× (remembered) |
+| `R` | Restart (asks first while a game is in progress) |
 | `` ` `` (backtick) | Show or hide the performance overlay |
 
-Open `/?stress` for the stress scenario: 5,000 enemies, 100 towers and 1,000+ projectiles at once. The game stays fully playable there.
+Add `?play` to the URL to skip the title screen. Open `/?stress` (or use the title screen's **Stress test** button) for the stress scenario: 5,000 enemies, 100 towers and 1,000+ projectiles at once. The game stays fully playable there.
 
 ## Running it
 
@@ -88,7 +96,21 @@ It builds Bolts on the listed tiles with real mouse clicks, leaves the build pre
   - A uniform grid of 64 px cells, rebuilt every step with a counting sort: count enemies per cell, take running totals, then write slots into one `Int32Array`. It's O(n) and allocates nothing.
   - A radius query only visits the cells the circle overlaps, and writes matches into a shared preallocated buffer.
   - Tower targeting and stray-projectile hits use it, and so does the renderer's culling.
-- **Step order** (`Game.step`): apply commands → move enemies → rebuild the grid → towers → projectiles → free dead enemies.
+- **Step order** (`Game.step`): apply commands → wave scheduler spawns → move enemies → rebuild the grid → towers → projectiles → free dead enemies → wave bookkeeping (clear bonuses, countdown, win and loss).
+- **Waves** (`src/sim/waves.ts`):
+  - All 50 waves are generated once at startup from curves, not written by hand.
+    - Health multiplier: ×1 at wave 1, rising to about ×14 by wave 50.
+    - Wave size: 10 Grunt-equivalents rising to about 100.
+    - Spawn spacing: shrinks to 35%.
+  - A roster says which wave each enemy type first appears in. A test checks that enemy count and total health never drop from one wave to the next.
+  - Each wave is a list of spawn groups `{ type, count, interval, delay, pathMask }`. At runtime one scheduler ticks a fixed list of up to 64 active groups held in typed arrays, so waves called early simply overlap.
+  - Every enemy carries its wave index. Per-wave counters of enemies "still to spawn" and "still in play" drive the clear bonus and the countdown, which starts once the newest wave has spawned.
+  - Calling early pays 1 gold per second skipped.
+- **Game states** (DOMAIN.md §2.6):
+  - The simulation knows only **Playing**, **Won** and **Lost**. Once the game is won or lost, `step()` does nothing, so the field freezes behind the end screen.
+  - Title, pause and the restart confirmation are client states: they stop the fixed stepper, but rendering and the camera keep running.
+  - Restart resets the existing typed arrays instead of reallocating them.
+- **Speed and determinism:** game speed is how many fixed steps fit in a frame, and the speed setting is saved on the device. A test plays the same scripted game (towers, early calls) at 60 Hz, 144 Hz, with jittery frame times, and at 2× and 4×, and checks that every run ends in identical state.
 - **Towers** (`src/sim/towers.ts`):
   - Dense typed arrays, plus a per-tile lookup so the UI can refer to towers by tile.
   - A tower keeps its target until the target dies or leaves range, and re-picks at most every 6 steps (0.1 s). That bounds grid queries to about one per tower per 6 steps.
@@ -172,17 +194,19 @@ Apple M1 (8 cores), Chrome 157, headed window, 1440×900 at 2× pixel ratio, mai
 
 | Scenario | Result | Avg FPS | p95 frame | FPS at p95 | Frames over 33 ms | Sim CPU | Render CPU | Min enemies | Min projectiles | Drawn | Heap start → end |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| `stress-fit` | **PASS** | 59.9 | 17.6 ms | 56.8 | 0.17% | 0.89 ms | 3.30 ms | 5,041 | 1,101 | 5,048 | 4.5 → 4.0 MB |
-| `stress-zoom` | **PASS** | 60.0 | 17.7 ms | 56.5 | 0.00% | 0.94 ms | 1.59 ms | 5,041 | 1,101 | 2,291 | 4.5 → 4.1 MB |
-| `stress-interactive` | **PASS** | 59.8 | 17.7 ms | 56.5 | 0.25% | 1.05 ms | 3.03 ms | 5,041 | 1,101 | 4,287 | 4.3 → 4.8 MB |
-| `control-interactive` | **PASS** | 60.0 | 17.6 ms | 56.8 | 0.00% | 0.03 ms | 0.16 ms | – | – | 22 | 4.7 → 4.8 MB |
+| `stress-fit` | **PASS** | 60.0 | 17.6 ms | 56.8 | 0.00% | 0.76 ms | 3.00 ms | 5,041 | 1,101 | 5,048 | 3.9 → 4.9 MB |
+| `stress-zoom` | **PASS** | 60.0 | 16.9 ms | 59.2 | 0.00% | 0.85 ms | 1.59 ms | 5,041 | 1,101 | 2,291 | 3.9 → 4.4 MB |
+| `stress-interactive` | **PASS** | 58.9 | 17.6 ms | 56.8 | 0.68% | 0.99 ms | 2.83 ms | 5,041 | 1,101 | 4,270 | 4.3 → 4.8 MB |
+| `control-interactive` | **PASS** | 60.0 | 17.6 ms | 56.8 | 0.08% | 0.01 ms | 0.11 ms | – | – | 0 | 4.4 → 4.6 MB |
+
+*Measured after feature 5. Feature 4's run gave the same picture, within ±1 FPS.*
 
 What this shows:
 
 - **Every scenario holds the display's 60 Hz** with the full load: at least 5,000 enemies, 100 towers and 1,100 projectiles in every frame. That leaves a wide margin over both targets (45 FPS at p95, under 5% of frames over 33 ms).
 - **CPU use is about 4 ms of a 16.7 ms frame,** so there's room for the remaining towers, enemies and effects.
-- **Culling works:** zoomed in, less than half the enemies are drawn and render time halves (3.3 → 1.6 ms), while the simulation cost stays the same.
-- **Input stays responsive under load.** Average input latency is 15.2 ms under stress against 14.6 ms in the control, so the difference is the harness, not the game.
-- **Memory is flat:** the heap moves by less than 1 MB over each run, with no growth.
+- **Culling works:** zoomed in, less than half the enemies are drawn and render time halves (3.0 → 1.6 ms), while the simulation cost stays the same.
+- **Input stays responsive under load.** Average input latency is 15.4 ms under stress, the same as the control, so the difference is the harness, not the game.
+- **Memory is flat:** the heap moves by about 1 MB or less over each run, with no growth.
 
 Raw results are in `bench/results/`. The earlier battery runs were dropped because Chrome was capping them at 30 FPS.

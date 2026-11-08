@@ -44,8 +44,29 @@ export const BASE_REACH = 22
 
 export const START_LIVES = 20
 export const START_GOLD = 200
-/** Score per gold of kill bounty (wave scaling arrives in feature 5). */
+/** Score per gold of kill bounty, before wave scaling. */
 export const SCORE_PER_BOUNTY = 10
+/** Kill score grows by this fraction per wave (wave 1 = ×1). */
+export const SCORE_WAVE_SCALE = 0.05
+/** Score per life left when the game is won. */
+export const WIN_SCORE_PER_LIFE = 500
+
+// ---- Waves (DOMAIN.md §2.5) ----
+
+export const WAVE_COUNT = 50
+/** Seconds between the last spawn of a wave and the next wave starting (tuned). */
+export const WAVE_GAP = 20
+/** Gold per second left on the countdown when the next wave is called early (tuned). */
+export const EARLY_GOLD_PER_SEC = 1
+/** Score per second left on the countdown when calling early. */
+export const EARLY_SCORE_PER_SEC = 10
+/** Wave-clear gold: base plus this much per wave number (tuned). */
+export const CLEAR_GOLD_BASE = 20
+export const CLEAR_GOLD_PER_WAVE = 2
+/** Wave-clear score per wave number. */
+export const CLEAR_SCORE_PER_WAVE = 100
+/** Most spawn groups running at once (overlapping waves share this). */
+export const MAX_SPAWN_GROUPS = 64
 
 // ---- Combat ----
 
