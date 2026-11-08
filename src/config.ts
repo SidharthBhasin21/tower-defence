@@ -238,6 +238,11 @@ export const SHELL_ARC = 26
 
 export const MAX_BEAMS = 512
 export const MAX_RINGS = 512
+export const MAX_PARTICLES = 4096
+/** Floating "+gold" numbers; the oldest are dropped when full. */
+export const MAX_TEXTS = 96
+/** How high flyers are drawn above their ground position, in world px (drawing only). */
+export const AIR_LIFT = 12
 
 // ---- Enemies (DOMAIN.md §2.4) ----
 

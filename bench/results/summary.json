@@ -2,17 +2,17 @@
   {
     "scenario": "stress-fit",
     "pass": "PASS",
-    "avg fps": "59.6",
+    "avg fps": "59.9",
     "p95 ms": "17.60",
     "fps@p95": "56.8",
-    ">33ms %": "0.59",
-    "sim ms": "1.22",
-    "render ms": "3.95",
-    "min enemies": 5092,
+    ">33ms %": "0.17",
+    "sim ms": "1.00",
+    "render ms": "3.92",
+    "min enemies": 5094,
     "min proj": 1103,
     "drawn": 5145,
-    "input ms": "31.6 / 68.9",
-    "heap MB": "5.2→5.3"
+    "input ms": "-",
+    "heap MB": "5.7→5.2"
   },
   {
     "scenario": "stress-zoom",
@@ -21,42 +21,42 @@
     "p95 ms": "17.60",
     "fps@p95": "56.8",
     ">33ms %": "0.00",
-    "sim ms": "1.12",
-    "render ms": "1.57",
-    "min enemies": 5092,
+    "sim ms": "1.09",
+    "render ms": "1.77",
+    "min enemies": 5094,
     "min proj": 1103,
-    "drawn": 1674,
+    "drawn": 1673,
     "input ms": "-",
-    "heap MB": "5.3→4.8"
+    "heap MB": "6.1→5.4"
   },
   {
     "scenario": "stress-interactive",
     "pass": "PASS",
-    "avg fps": "59.1",
+    "avg fps": "59.4",
     "p95 ms": "17.60",
     "fps@p95": "56.8",
-    ">33ms %": "0.93",
-    "sim ms": "1.20",
-    "render ms": "4.19",
+    ">33ms %": "0.25",
+    "sim ms": "1.01",
+    "render ms": "3.70",
     "min enemies": 5092,
     "min proj": 1103,
     "drawn": 4944,
-    "input ms": "15.2 / 64.3",
-    "heap MB": "5.5→6.1"
+    "input ms": "15.6 / 183.8",
+    "heap MB": "6→6.7"
   },
   {
     "scenario": "control-interactive",
     "pass": "PASS",
-    "avg fps": "60.0",
+    "avg fps": "59.6",
     "p95 ms": "17.60",
     "fps@p95": "56.8",
-    ">33ms %": "0.00",
+    ">33ms %": "0.17",
     "sim ms": "0.02",
-    "render ms": "0.14",
+    "render ms": "0.12",
     "min enemies": 0,
     "min proj": 0,
     "drawn": 0,
-    "input ms": "14.7 / 63.8",
-    "heap MB": "4.8→5.1"
+    "input ms": "14.7 / 49.5",
+    "heap MB": "5.1→5.3"
   }
 ]

@@ -81,9 +81,9 @@ src/
     projectiles.ts      Projectile pool (dense SoA, swap-remove)
     grid.ts             Uniform spatial hash, rebuilt each step by counting sort
     waves.ts            Generates the 50 waves; runtime spawn scheduler (fixed group list)
-    fx.ts               Beams and rings written by the sim (visual-only pools); particles and text in feature 10
+    fx.ts               Visual-only pools written by the sim: beams, rings, particles (own random generator) and floating text
     ring.ts             Preallocated integer ring buffer shared by events and commands
-    events.ts           Sim → client events (sound, toasts, UI)
+    events.ts           Sim → client events (sound, toasts, shake, UI)
     commands.ts         Player → sim commands, applied at the start of the next step
     stress.ts           Stress scenario: 100 towers, tops up to 5,000 enemies and 1,000+ projectiles
     bot.ts              Scripted player for balance tests and the full-run benchmark
@@ -143,7 +143,7 @@ README.md               Architecture, rendering, bottlenecks, optimizations, mea
 | Towers | 256 | Dense arrays | UI references them by tile index |
 | Particles | 4096 | Dense arrays, swap-remove | Visual only |
 | Beams and rings | 512 | Dense arrays, swap-remove | Visual only |
-| Floating text | 96 | Dense arrays; strings come from a startup cache of `"+0"`…`"+9999"` | Visual only |
+| Floating text | 96 | Dense arrays; when full the oldest is reused. Strings come from a startup cache of `"+0"`…`"+999"` | Visual only |
 
 - **Allocated once.** All arrays are created at startup. The game loop never creates objects, arrays, closures or strings.
 - **Restart reuses memory.** It resets the counts and does not reallocate.
@@ -301,7 +301,8 @@ Any LOD added must be recorded in the README, with the measurement that justifie
   | Drag with any button (after 5 px, so clicks still work), or `WASD` / arrow keys | Pan |
   | `Home` | Fit the whole map |
   | `` ` `` | Perf overlay |
-- **Audio:** small synthesized sounds created with Web Audio. Each sound has a rate limit so 5,000 enemies can't flood the audio graph. Audio starts on the first click or keypress, as browsers require.
+- **Audio:** small synthesized sounds created with Web Audio, played from sim events. Each sound has a minimum gap between plays and at most 6 new sounds start per frame, so 5,000 enemies can't flood the audio graph. Audio starts on the first click or keypress, as browsers require.
+- **Feedback:** screen shake (renderer, real time) on leaks, boss arrivals and Warlord deaths; off in stress mode.
 
 ---
 

@@ -1,4 +1,5 @@
 import {
+  AIR_LIFT,
   ARMOR_MIN_FRACTION,
   ArmorMode,
   CLEAR_GOLD_BASE,
@@ -40,7 +41,7 @@ import { Rng } from '../rng.ts'
 import { Cmd, CommandQueue } from './commands.ts'
 import { EnemyPool } from './enemies.ts'
 import { Ev, EventQueue } from './events.ts'
-import { BeamPool, RingKind, RingPool } from './fx.ts'
+import { BeamPool, ParticleColor, ParticlePool, RingKind, RingPool, TextPool } from './fx.ts'
 import { SpatialGrid } from './grid.ts'
 import { GameMap } from './map.ts'
 import { SampledPath } from './path.ts'
@@ -100,6 +101,8 @@ export class Game {
   /** Visual-only effects written by the sim (never read by gameplay). */
   readonly beams = new BeamPool()
   readonly rings = new RingPool()
+  readonly particles = new ParticlePool()
+  readonly texts = new TextPool()
   readonly rng: Rng
   private readonly seed: number
   /** Per wave index: enemies not yet spawned, and enemies not yet gone (unspawned + alive). */
@@ -158,6 +161,8 @@ export class Game {
     this.releaseSplits()
     this.beams.step()
     this.rings.step()
+    this.particles.step()
+    this.texts.step()
     this.stepWaves()
   }
 
@@ -178,6 +183,8 @@ export class Game {
     this.scheduler.reset()
     this.beams.reset()
     this.rings.reset()
+    this.particles.reset()
+    this.texts.reset()
     this.rng.reseed(this.seed)
     this.enemies.reset()
     this.towers.reset()
@@ -503,6 +510,8 @@ export class Game {
       this.damage(s, amount * f)
     }
     this.rings.add(RingKind.Explosion, x, y, radius, 0.35)
+    this.particles.burst(x, y, 10, ParticleColor.Fire, radius * 3, 0.45, 3.2)
+    this.events.push(Ev.Explode)
   }
 
   /** Applies a slow. Slows don't stack: the strongest active one wins (DOMAIN.md §2.4). */
@@ -567,6 +576,14 @@ export class Game {
     this.score += Math.round(bounty * SCORE_PER_BOUNTY * (1 + SCORE_WAVE_SCALE * Math.max(wi, 0)))
     this.kills++
     this.events.push(Ev.Kill, type, bounty, s)
+    // Death burst in the enemy's colour, and the gold it paid, at its drawn height.
+    const def = ENEMIES[type]
+    const x = this.enemies.x[s]
+    const y = this.enemies.y[s] - (def.air ? AIR_LIFT : 0)
+    const boss = type === EnemyType.Warlord
+    this.particles.burst(x, y, boss ? 40 : 7 + (def.radius >> 1), type, 50 + def.radius * 6, boss ? 0.9 : 0.55, boss ? 4 : 3)
+    if (boss) this.particles.burst(x, y, 24, ParticleColor.Fire, 220, 0.7, 3)
+    this.texts.add(x, y - def.radius, bounty)
     if (type === EnemyType.Warlord && this.splitCount < this.splitPath.length) {
       const k = this.splitCount++
       this.splitPath[k] = this.enemies.pathId[s]

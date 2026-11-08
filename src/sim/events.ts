@@ -34,6 +34,8 @@ export const Ev = {
   UpgradeFailed: 13,
   /** A tower was sold. a = tower type, b = gold refunded. */
   Sold: 14,
+  /** A Cannon shell burst. */
+  Explode: 15,
 } as const
 export type EventType = (typeof Ev)[keyof typeof Ev]
 

@@ -1,5 +1,6 @@
 import './style.css'
-import { GAME_SPEEDS } from './config.ts'
+import { Sfx, Sound } from './audio/sfx.ts'
+import { ENEMIES, EnemyType, GAME_SPEEDS } from './config.ts'
 import { GameLoop } from './loop.ts'
 import { PerfOverlay } from './perf/overlay.ts'
 import { FrameRecorder, type FrameStats } from './perf/recorder.ts'
@@ -70,6 +71,7 @@ let frameNow = 0
 // ---- Client state: title, pause, speed, restart (DOMAIN.md §2.6) ----
 
 const settings = loadSettings()
+const sfx = new Sfx(settings.muted)
 let speedIndex = Math.min(Math.max(settings.speedIndex, 0), GAME_SPEEDS.length - 1)
 
 /** Panels that stop the simulation while open (the game-over screens stop it via the sim phase). */
@@ -87,6 +89,7 @@ function setSpeed(i: number): void {
 
 function toggleMute(): void {
   settings.muted = !settings.muted
+  sfx.setMuted(settings.muted)
   saveSettings(settings)
 }
 
@@ -194,27 +197,53 @@ function endGame(won: boolean): void {
 
 /** Sim → client events, drained once per frame. Bound once; allocates nothing. */
 function onEvent(type: number, a: number, b: number): void {
-  if (type === Ev.Leak) {
-    if (!stressMode) renderer.flashBase()
+  if (type === Ev.Shot) {
+    sfx.play(a) // Sound ids 0–4 are the tower types
+  } else if (type === Ev.Kill) {
+    if (a === EnemyType.Warlord) {
+      sfx.play(Sound.BossDie)
+      renderer.shake(7)
+    } else sfx.play(Sound.Pop, Math.min(1.6, 12 / ENEMIES[a].radius))
+  } else if (type === Ev.Explode) {
+    sfx.play(Sound.Explode)
+  } else if (type === Ev.Leak) {
+    sfx.play(Sound.Leak)
+    if (!stressMode) {
+      renderer.flashBase()
+      renderer.shake(2.5)
+    }
+  } else if (type === Ev.TowerPlaced) {
+    sfx.play(Sound.Place)
+  } else if (type === Ev.Upgraded) {
+    sfx.play(Sound.Upgrade)
   } else if (type === Ev.PlaceFailed) {
+    sfx.play(Sound.Error)
     if (a === PlaceResult.NoGold) hud.toast('Not enough gold', 'warn', frameNow)
     else if (a === PlaceResult.Occupied) hud.toast('There is already a tower there', 'warn', frameNow)
     else if (a === PlaceResult.Blocked || a === PlaceResult.OutOfBounds) hud.toast("Can't build there", 'warn', frameNow)
     else if (a === PlaceResult.TooManyTowers) hud.toast('Tower limit reached', 'warn', frameNow)
   } else if (type === Ev.WaveStart) {
+    sfx.play(Sound.WaveStart)
     hud.toast(b > 0 ? `Wave ${a} called early: +${b} gold` : `Wave ${a}`, 'info', frameNow)
   } else if (type === Ev.WaveCleared) {
+    sfx.play(Sound.WaveClear)
     hud.toast(`Wave ${a} cleared: +${b} gold`, 'info', frameNow)
   } else if (type === Ev.UpgradeFailed) {
+    sfx.play(Sound.Error)
     if (a === UpgradeResult.NoGold) hud.toast('Not enough gold to upgrade', 'warn', frameNow)
     else if (a === UpgradeResult.MaxLevel) hud.toast('Already at max level', 'warn', frameNow)
   } else if (type === Ev.Sold) {
+    sfx.play(Sound.Sell)
     hud.toast(`Sold for ${b} gold`, 'info', frameNow)
   } else if (type === Ev.BossSpawn) {
+    sfx.play(Sound.BossSpawn)
+    renderer.shake(3)
     hud.toast(`Wave ${a}: a Warlord approaches!`, 'boss', frameNow)
   } else if (type === Ev.Victory) {
+    sfx.play(Sound.Victory)
     endGame(true)
   } else if (type === Ev.Defeat) {
+    sfx.play(Sound.Defeat)
     endGame(false)
   }
 }
@@ -307,6 +336,7 @@ const loop = new GameLoop({
     // While paused, apply queued commands without stepping, so building,
     // upgrading and selling work in a paused game. No game time passes.
     if (loop.stepper.paused && game.phase === Phase.Playing) game.applyCommands()
+    sfx.frame()
     game.events.drain(onEvent)
     input.update(realDt)
     renderer.render(alpha, realDt)
@@ -333,4 +363,4 @@ loop.start()
 if (benchSeconds > 0) Object.assign(window, { __bench: bench })
 
 // Dev builds only: expose state for scripts/shot.mjs and console debugging.
-if (import.meta.env.DEV) Object.assign(window, { __td: { game, camera, renderer, controls, screens, hud, loop, recorder } })
+if (import.meta.env.DEV) Object.assign(window, { __td: { game, camera, renderer, controls, screens, hud, sfx, loop, recorder } })

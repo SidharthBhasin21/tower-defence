@@ -2,7 +2,7 @@
 
 A single-player tower defense game for desktop browsers. It runs entirely offline, with no server and no external assets. You defend a base against 50 waves by placing, upgrading and selling towers that fire automatically.
 
-> **Status:** in development, being built feature by feature. Done so far: **feature 9 (HUD and screens)**. The game is playable from start to finish:
+> **Status:** in development, being built feature by feature. Done so far: **feature 10 (sound and visual polish)**. The game is playable from start to finish:
 > - Five towers: Bolt, Cannon, Frost, Arc and Sniper, each attacking in its own way.
 > - Seven enemies: Grunt, Runner, Swarmling, Brute (armored), Wisp (flies), Mender (heals) and the Warlord boss (splits into Runners).
 > - Towers upgrade to level 4 and sell for 70% of what was spent on them. Each tower has a targeting mode (First, Last, Strongest or Closest), all set from a tower panel.
@@ -10,8 +10,9 @@ A single-player tower defense game for desktop browsers. It runs entirely offlin
 > - Victory and game-over screens, with the best score kept on this device.
 > - Pause, three game speeds, and restart.
 > - A HUD (lives, gold, wave, score, enemies left, next-wave preview with a **Send now** button, pause/speed/sound/restart buttons), a build bar of tower cards, toasts, and a **How to play** screen.
+> - Sound effects made in code (each tower, kills, explosions, leaks, building, upgrades, waves, bosses, win and loss), death bursts, sparks, floating gold numbers and screen shake.
 >
-> Sound (the mute button is already wired) and visual polish come in feature 10; balance tuning in feature 11.
+> Balance tuning comes in feature 11.
 
 ### Controls so far
 
@@ -29,7 +30,7 @@ A single-player tower defense game for desktop browsers. It runs entirely offlin
 | `P` | Pause or resume |
 | `F` | Cycle game speed: 1×, 2×, 4× (remembered) |
 | `R` | Restart (asks first while a game is in progress) |
-| `M` | Mute or unmute (remembered; sound arrives in feature 10) |
+| `M` | Mute or unmute (remembered) |
 | `` ` `` (backtick) | Show or hide the performance overlay |
 
 Add `?play` to the URL to skip the title screen. Open `/?stress` (or use the title screen's **Stress test** button) for the stress scenario: 5,000 enemies, 100 towers and 1,000+ projectiles at once. The game stays fully playable there.
@@ -175,9 +176,20 @@ It builds towers on the listed tiles with real mouse clicks (`k@tx,ty` picks tow
   - The few sniper tracers, frost rings and explosion rings fade individually with `globalAlpha`. All are culled against the view. Health bars, shown only for damaged enemies, are one fill for the backgrounds and one per colour band (green, yellow, red).
 - **Hit flash:** each enemy sprite has a white-tinted copy in the atlas, swapped in for 0.08 s after a hit. There's no per-draw filter or compositing.
 - **Build preview:** the hovered tile turns green or red depending on the same `canPlace` check the simulation uses, with a ghost tower and its range ring.
-- **Leak feedback:** when an enemy reaches the base, a red glow flashes over it and fades in real time.
+- **Leak feedback:** when an enemy reaches the base, a red glow flashes over it, the view shakes slightly and a low buzz plays.
+- **Particles:** enemies burst into squares of their own colour when they die, shells throw fire, bolts spark on impact, and a Warlord's death is a big burst plus a stronger shake. Particles live in a 4,096-slot typed-array pool written by the sim (like beams and rings), so they freeze when paused and follow game speed. They shrink as they fade instead of using per-particle alpha, so all particles of one colour are a single path and a single `fill` (10 colours, so at most 10 fills).
+- **Floating gold:** each kill shows "+N" rising from the enemy. 96 slots; when full the oldest is reused. The strings `"+0"`…`"+999"` are built once at startup, so drawing them creates no strings.
+- **Flyers are hit where they're drawn:** bolts climb to a flyer's drawn height over the last 90 px of flight, sniper tracers end at the raised body, and flyer death bursts and gold numbers appear at that height too. (Before, bolts visibly hit a Wisp's shadow.)
+- **Screen shake:** a decaying random offset added to the camera transform once per frame, for leaks, boss arrivals and Warlord deaths. Off in stress mode.
 
-*Still to come: directional sprites, particles and floating text. See ARCHITECTURE.md §5.*
+## Sound
+
+All sounds are synthesized with Web Audio at runtime (`src/audio/sfx.ts`): short oscillator sweeps and filtered bursts from one shared second of noise, through a compressor so overlapping sounds don't clip. There are no audio files.
+
+- **Driven by sim events.** The client already drains the event queue once per frame; shots, kills, explosions, leaks, builds, upgrades, sales, refused actions, wave start and clear, boss arrival, victory and defeat each map to a sound.
+- **Rate-limited so a busy game can't flood the audio graph.** Each sound has a minimum gap between plays (45 ms for kill pops up to 1 s for the end jingles), and at most 6 new sounds start per frame. Web Audio nodes are objects, so each sound allocates a few; the limits keep that to a few dozen sounds a second at most, outside the simulation, and the stress benchmark below runs with sound on.
+- **Small random detune** on every play so repeated shots don't sound mechanical; kill pops are pitched by enemy size.
+- **Starts on the first click or key press,** as browsers require. Mute (`M` or the HUD button) is saved with the other settings.
 
 ## Performance bottlenecks
 
@@ -197,6 +209,9 @@ Measured with the per-frame CPU split from the recorder below:
 - **Grid-based culling:** the renderer only walks grid cells on screen, so cost follows what's visible.
 - **One sprite atlas,** so every entity draw uses the same source image and Chrome can batch them.
 - **Batched vector drawing:** all tracers are 2 strokes, and all health bars are 4 fills.
+- **Particles batched by colour:** at most 10 fills for up to 4,096 particles, no per-particle alpha. Under `?stress` the pool holds 2,300–3,900 live particles (mostly bolt sparks) and the text pool is full, and render time stayed at about 3.7–3.9 ms per frame, the same as before particles existed.
+- **No strings in the draw loop:** floating gold numbers come from a startup cache.
+- **Rate-limited sound:** per-sound minimum gaps and 6 new sounds per frame at most.
 - **Tight sprite frames:** the Grunt frame went from 30×30 to 24×24 world px, 36% fewer pixels filled per enemy.
 - **DOM updates only on change:** the HUD keeps the last value it showed for each field and writes only what changed (`textContent` and class toggles). A quiet frame touches no DOM. The next-wave preview is rebuilt once per wave, and the perf overlay refreshes 4 times a second, not every frame. An A/B run of `?stress` with the HUD shown and hidden gave the same render time (3.5–3.6 ms vs 3.4–3.8 ms per frame).
 
@@ -233,12 +248,12 @@ Apple M1 (8 cores), Chrome 157, headed window, 1440×900 at 2× pixel ratio, mai
 
 | Scenario | Result | Avg FPS | p95 frame | FPS at p95 | Frames over 33 ms | Sim CPU | Render CPU | Min enemies | Min projectiles | Drawn | Heap start → end |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| `stress-fit` | **PASS** | 59.6 | 17.6 ms | 56.8 | 0.59% | 1.22 ms | 3.95 ms | 5,092 | 1,103 | 5,145 | 5.2 → 5.3 MB |
-| `stress-zoom` | **PASS** | 60.0 | 17.6 ms | 56.8 | 0.00% | 1.12 ms | 1.57 ms | 5,092 | 1,103 | 1,674 | 5.3 → 4.8 MB |
-| `stress-interactive` | **PASS** | 59.1 | 17.6 ms | 56.8 | 0.93% | 1.20 ms | 4.19 ms | 5,092 | 1,103 | 4,944 | 5.5 → 6.1 MB |
-| `control-interactive` | **PASS** | 60.0 | 17.6 ms | 56.8 | 0.00% | 0.02 ms | 0.14 ms | – | – | 0 | 4.8 → 5.1 MB |
+| `stress-fit` | **PASS** | 59.9 | 17.6 ms | 56.8 | 0.17% | 1.00 ms | 3.92 ms | 5,094 | 1,103 | 5,145 | 5.7 → 5.2 MB |
+| `stress-zoom` | **PASS** | 60.0 | 17.6 ms | 56.8 | 0.00% | 1.09 ms | 1.77 ms | 5,094 | 1,103 | 1,673 | 6.1 → 5.4 MB |
+| `stress-interactive` | **PASS** | 59.4 | 17.6 ms | 56.8 | 0.25% | 1.01 ms | 3.70 ms | 5,092 | 1,103 | 4,944 | 6.0 → 6.7 MB |
+| `control-interactive` | **PASS** | 59.6 | 17.6 ms | 56.8 | 0.17% | 0.02 ms | 0.12 ms | – | – | 0 | 5.1 → 5.3 MB |
 
-*Measured after feature 9, with the HUD on screen and all 100 stress towers at **level 4**, the heaviest case: longest ranges and most chain jumps. Stress enemies have 1,800 health so most survive.*
+*Measured after feature 10 (load average about 6), with the HUD, particles, floating text and sound on, and all 100 stress towers at **level 4**, the heaviest case: longest ranges and most chain jumps. Stress enemies have 1,800 health so most survive.*
 
 **Background load matters.** A first run after feature 9, with the load average at 31 (another browser at 100% CPU plus Spotlight indexing), failed `stress-fit` and `stress-interactive`: 18% and 9% of frames over 33 ms. Its *simulation* time also more than doubled (2.8 ms vs 1.2 ms), and the HUD can't affect that, so the machine was the cause. An A/B check with the HUD shown and hidden confirmed it. The rerun above was taken at a load average of about 13 falling to 6. Final numbers for feature 12 will be taken on an idle machine.
 - **Towers:** a mix of all five types (50 Bolt, 20 Cannon, 10 each of Frost, Arc and Sniper), with their shells, lightning, tracers and rings.

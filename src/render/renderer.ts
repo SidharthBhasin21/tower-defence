@@ -1,5 +1,5 @@
-import { DT, ENEMIES, EnemyType, MAX_ENEMIES, SHELL_ARC, TILE, TOWERS, WORLD_H, WORLD_W, towerStats } from '../config.ts'
-import { BeamKind, RingKind } from '../sim/fx.ts'
+import { AIR_LIFT, DT, ENEMIES, EnemyType, MAX_ENEMIES, SHELL_ARC, TILE, TOWERS, WORLD_H, WORLD_W, towerStats } from '../config.ts'
+import { BeamKind, PARTICLE_COLORS, RingKind } from '../sim/fx.ts'
 import { PlaceResult, type Game } from '../sim/game.ts'
 import type { Controls } from '../ui/controls.ts'
 import { BG_SCALE, baseCentre, portalPositions, renderBackground } from './background.ts'
@@ -14,8 +14,12 @@ const NO_DASH: number[] = []
 /** Health-bar colour bands, from healthy to nearly dead. */
 const HP_COLOURS = ['#5fd35f', '#f2c744', '#ef5a4c']
 const HP_BG = 'rgba(10, 14, 12, 0.85)'
-/** Flyers are drawn this far above their ground position, in world px. */
-const AIR_LIFT = 12
+/** Particle colours by ParticleColor index: the 7 enemy types, then fire, spark, gold. */
+const PARTICLE_FILL = ['#e0574d', '#f3ad3c', '#3cb8ad', '#8a919b', '#a8e8ff', '#5ccc6b', '#a45cd0', '#ffb347', '#e8fbff', '#ffd864']
+/** "+0" … "+999", built once so floating gold numbers never create strings. */
+const GOLD_TEXT = Array.from({ length: 1000 }, (_, i) => `+${i}`)
+/** Bolts rise to a flyer's drawn height over this last stretch of flight, in world px. */
+const AIR_RISE = 90
 
 /**
  * Canvas 2D renderer (ARCHITECTURE.md §5). Applies the camera once per frame
@@ -48,6 +52,9 @@ export class Renderer {
   private camOy = 0
   /** Red flash on the base after a leak, fading from 1 to 0 in real time. */
   private baseFlash = 0
+  /** Screen shake strength in world px, decaying in real time. */
+  private shakeAmp = 0
+  private readonly particleCount = new Uint16Array(PARTICLE_COLORS)
   /** Enemies drawn last frame (for the perf overlay and benchmark). */
   drawnEnemies = 0
 
@@ -81,6 +88,11 @@ export class Renderer {
     this.baseFlash = 1
   }
 
+  /** Shakes the view for a moment; `amount` is in world px. The strongest request wins. */
+  shake(amount: number): void {
+    this.shakeAmp = Math.max(this.shakeAmp, amount)
+  }
+
   render(alpha: number, realDt: number): void {
     const { ctx, camera, dpr } = this
     // Sim time, interpolated: animations freeze when paused and scale with game speed.
@@ -94,6 +106,11 @@ export class Renderer {
     this.camS = camera.zoom * dpr
     this.camOx = (camera.viewW / 2 - camera.x * camera.zoom) * dpr
     this.camOy = (camera.viewH / 2 - camera.y * camera.zoom) * dpr
+    if (this.shakeAmp > 0.05) {
+      this.camOx += (Math.random() - 0.5) * 2 * this.shakeAmp * this.camS
+      this.camOy += (Math.random() - 0.5) * 2 * this.shakeAmp * this.camS
+      this.shakeAmp *= Math.exp(-realDt * 9)
+    } else this.shakeAmp = 0
     ctx.setTransform(this.camS, 0, 0, this.camS, this.camOx, this.camOy)
     const v = camera.viewRect(this.view)
 
@@ -107,7 +124,9 @@ export class Renderer {
     this.drawBase(t, v)
     this.drawProjectiles(alpha, v)
     this.drawEffects(alpha, v)
+    this.drawParticles(alpha, v)
     this.drawHealthBars()
+    this.drawTexts(alpha, v)
     this.drawBuildPreview()
     this.baseFlash = Math.max(0, this.baseFlash - realDt * 2.5)
   }
@@ -305,6 +324,7 @@ export class Renderer {
   private drawProjectiles(alpha: number, v: Rect): void {
     const ctx = this.ctx
     const p = this.game.projectiles
+    const e = this.game.enemies
     if (p.count === 0) return
     let shells = 0
     ctx.lineCap = 'round'
@@ -316,8 +336,14 @@ export class Renderer {
           continue
         }
         const x = p.px[i] + (p.x[i] - p.px[i]) * alpha
-        const y = p.py[i] + (p.y[i] - p.py[i]) * alpha
+        let y = p.py[i] + (p.y[i] - p.py[i]) * alpha
         if (x < v.x0 - 16 || x > v.x1 + 16 || y < v.y0 - 16 || y > v.y1 + 16) continue
+        // Shots at a flyer climb to its drawn height as they close in.
+        const s = p.targetSlot[i]
+        if (s >= 0 && e.isAlive(s, p.targetGen[i]) && ENEMIES[e.type[s]].air) {
+          const d = Math.hypot(e.x[s] - x, e.y[s] - y)
+          y -= AIR_LIFT * Math.max(0, 1 - d / AIR_RISE)
+        }
         ctx.moveTo(x, y)
         ctx.lineTo(x - p.dx[i] * 9, y - p.dy[i] * 9)
       }
@@ -446,6 +472,58 @@ export class Renderer {
       ctx.strokeStyle = '#fff6e0'
       ctx.lineWidth = 1.5
       ctx.stroke()
+    }
+    ctx.globalAlpha = 1
+  }
+
+  /**
+   * Particles: small squares that shrink as they fade (so no per-particle
+   * alpha), one path and one fill per colour.
+   */
+  private drawParticles(alpha: number, v: Rect): void {
+    const ctx = this.ctx
+    const p = this.game.particles
+    if (p.count === 0) return
+    const counts = this.particleCount
+    counts.fill(0)
+    for (let i = 0; i < p.count; i++) counts[p.color[i]]++
+    for (let c = 0; c < PARTICLE_COLORS; c++) {
+      if (counts[c] === 0) continue
+      ctx.beginPath()
+      let left = counts[c]
+      for (let i = 0; i < p.count && left > 0; i++) {
+        if (p.color[i] !== c) continue
+        left--
+        const x = p.px[i] + (p.x[i] - p.px[i]) * alpha
+        const y = p.py[i] + (p.y[i] - p.py[i]) * alpha
+        if (x < v.x0 - 8 || x > v.x1 + 8 || y < v.y0 - 8 || y > v.y1 + 8) continue
+        const sz = p.size[i] * Math.sqrt(Math.max(0, p.life[i] - alpha * DT) / p.maxLife[i])
+        ctx.rect(x - sz / 2, y - sz / 2, sz, sz)
+      }
+      ctx.fillStyle = PARTICLE_FILL[c]
+      ctx.fill()
+    }
+  }
+
+  /** Floating "+gold" numbers: rise, then fade over the last third of their life. */
+  private drawTexts(alpha: number, v: Rect): void {
+    const t = this.game.texts
+    if (t.count === 0) return
+    const ctx = this.ctx
+    ctx.font = 'bold 10px system-ui, -apple-system, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.lineWidth = 2.5
+    ctx.strokeStyle = 'rgba(40, 26, 0, 0.85)'
+    ctx.fillStyle = '#ffd864'
+    for (let i = 0; i < t.count; i++) {
+      if (t.x[i] < v.x0 - 20 || t.x[i] > v.x1 + 20 || t.y[i] < v.y0 - 30 || t.y[i] > v.y1 + 20) continue
+      const left = Math.max(0, t.life[i] - alpha * DT) / t.maxLife[i]
+      const y = t.y[i] - (1 - left) * 18
+      ctx.globalAlpha = left < 0.35 ? left / 0.35 : 1
+      const str = GOLD_TEXT[Math.min(999, Math.max(0, t.value[i]))]
+      ctx.strokeText(str, t.x[i], y)
+      ctx.fillText(str, t.x[i], y)
     }
     ctx.globalAlpha = 1
   }

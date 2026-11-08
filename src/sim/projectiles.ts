@@ -1,4 +1,5 @@
-import { DT, ENEMIES, MAX_ENEMY_RADIUS, ORPHAN_LIFE, PROJECTILE_RADIUS } from '../config.ts'
+import { AIR_LIFT, DT, ENEMIES, MAX_ENEMY_RADIUS, ORPHAN_LIFE, PROJECTILE_RADIUS } from '../config.ts'
+import { ParticleColor } from './fx.ts'
 import type { Game } from './game.ts'
 
 /**
@@ -150,6 +151,7 @@ export function stepProjectiles(g: Game): void {
     }
 
     if (hit >= 0) {
+      g.particles.burst(p.x[i], p.y[i] - (ENEMIES[e.type[hit]].air ? AIR_LIFT : 0), 2, ParticleColor.Spark, 70, 0.2, 1.6)
       g.damage(hit, p.damage[i])
       p.remove(i)
     } else if (p.life[i] <= 0) {

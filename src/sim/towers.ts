@@ -1,5 +1,6 @@
 import {
   AIM_TOLERANCE,
+  AIR_LIFT,
   towerStats,
   DT,
   ENEMIES,
@@ -193,7 +194,9 @@ function fire(g: Game, i: number, s: number, def: TowerDef): void {
       break
     case TowerType.Sniper: {
       const a = t.angle[i]
-      g.beams.add(BeamKind.Sniper, t.x[i] + Math.cos(a) * 15, t.y[i] + Math.sin(a) * 15, g.enemies.x[s], g.enemies.y[s], 0.22)
+      // The tracer ends where the target is drawn (flyers are drawn raised).
+      const lift = ENEMIES[g.enemies.type[s]].air ? AIR_LIFT : 0
+      g.beams.add(BeamKind.Sniper, t.x[i] + Math.cos(a) * 15, t.y[i] + Math.sin(a) * 15, g.enemies.x[s], g.enemies.y[s] - lift, 0.22)
       g.damage(s, def.damage, def.armor)
       break
     }
