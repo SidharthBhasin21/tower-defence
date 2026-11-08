@@ -50,6 +50,11 @@ export interface LoopHooks {
    * is unscaled wall time since the previous frame (for camera and UI motion).
    */
   render(alpha: number, realDt: number, now: number): void
+  /**
+   * Optional timing report after each frame: time since the previous frame,
+   * CPU time spent stepping and rendering (ms), and steps run.
+   */
+  frameDone?(intervalMs: number, simMs: number, renderMs: number, steps: number, now: number): void
 }
 
 /**
@@ -78,11 +83,16 @@ export class GameLoop {
 
   private tick(now: number): void {
     if (!this.running) return
-    const realDt = this.last < 0 ? 0 : (now - this.last) / 1000
+    const intervalMs = this.last < 0 ? 0 : now - this.last
+    const realDt = intervalMs / 1000
     this.last = now
+    const t0 = performance.now()
     const steps = this.stepper.advance(realDt)
     for (let i = 0; i < steps; i++) this.hooks.step()
+    const t1 = performance.now()
     this.hooks.render(this.stepper.alpha, Math.min(realDt, MAX_FRAME_DT), now)
+    const t2 = performance.now()
+    if (this.hooks.frameDone && intervalMs > 0) this.hooks.frameDone(intervalMs, t1 - t0, t2 - t1, steps, now)
     requestAnimationFrame(this.frame)
   }
 }

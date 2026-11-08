@@ -1,12 +1,18 @@
-import { DT, WORLD_H, WORLD_W } from '../config.ts'
-import type { Game } from '../sim/game.ts'
+import { DT, ENEMIES, MAX_ENEMIES, TILE, TOWERS, WORLD_H, WORLD_W } from '../config.ts'
+import { PlaceResult, type Game } from '../sim/game.ts'
+import type { Controls } from '../ui/controls.ts'
 import { BG_SCALE, baseCentre, portalPositions, renderBackground } from './background.ts'
-import type { Camera, Rect } from './camera.ts'
+import type { Camera, Rect, Vec } from './camera.ts'
 import { buildSprites, type Sprites } from './sprites.ts'
 
 /** Colour drawn outside the map. */
 const VOID = '#0b130e'
 const TAU = Math.PI * 2
+const DASH = [6, 5]
+const NO_DASH: number[] = []
+/** Health-bar colour bands, from healthy to nearly dead. */
+const HP_COLOURS = ['#5fd35f', '#f2c744', '#ef5a4c']
+const HP_BG = 'rgba(10, 14, 12, 0.85)'
 
 /**
  * Canvas 2D renderer (ARCHITECTURE.md §5). Applies the camera once per frame
@@ -17,6 +23,7 @@ export class Renderer {
   private readonly ctx: CanvasRenderingContext2D
   private readonly camera: Camera
   private readonly game: Game
+  private readonly controls: Controls
   private readonly background: HTMLCanvasElement
   private readonly portalGlow: HTMLCanvasElement
   private readonly baseGlow: HTMLCanvasElement
@@ -25,19 +32,30 @@ export class Renderer {
   private readonly portals: readonly (readonly [number, number])[]
   private readonly base: readonly [number, number]
   private readonly view: Rect = { x0: 0, y0: 0, x1: 0, y1: 0 }
+  private readonly hover: Vec = { x: 0, y: 0 }
+  /** Visible enemies this frame, with interpolated positions (allocated once). */
+  private readonly visSlot = new Int32Array(MAX_ENEMIES)
+  private readonly visX = new Float32Array(MAX_ENEMIES)
+  private readonly visY = new Float32Array(MAX_ENEMIES)
+  private visCount = 0
   private dpr = 1
+  /** Camera transform for this frame: world px → device px. */
+  private camS = 1
+  private camOx = 0
+  private camOy = 0
   /** Red flash on the base after a leak, fading from 1 to 0 in real time. */
   private baseFlash = 0
   /** Enemies drawn last frame (for the debug readout). */
   drawnEnemies = 0
 
-  constructor(canvas: HTMLCanvasElement, camera: Camera, game: Game) {
+  constructor(canvas: HTMLCanvasElement, camera: Camera, game: Game, controls: Controls) {
     const ctx = canvas.getContext('2d', { alpha: false })
     if (!ctx) throw new Error('Canvas 2D is not supported')
     this.canvas = canvas
     this.ctx = ctx
     this.camera = camera
     this.game = game
+    this.controls = controls
     this.background = renderBackground(game.map)
     this.portalGlow = glowSprite(64, '190, 120, 255')
     this.baseGlow = glowSprite(96, '110, 220, 255')
@@ -70,43 +88,215 @@ export class Renderer {
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height)
 
     // Camera transform, applied once: world px → device px.
-    const s = camera.zoom * dpr
-    ctx.setTransform(s, 0, 0, s, (camera.viewW / 2 - camera.x * camera.zoom) * dpr, (camera.viewH / 2 - camera.y * camera.zoom) * dpr)
+    this.camS = camera.zoom * dpr
+    this.camOx = (camera.viewW / 2 - camera.x * camera.zoom) * dpr
+    this.camOy = (camera.viewH / 2 - camera.y * camera.zoom) * dpr
+    ctx.setTransform(this.camS, 0, 0, this.camS, this.camOx, this.camOy)
     const v = camera.viewRect(this.view)
 
     this.drawBackground(v)
     this.drawPortals(t, v)
+    this.drawSelection()
+    this.drawTowers(alpha, v)
+    this.collectVisibleEnemies(alpha, t, v)
     // Enemies before the base, so they walk into it rather than over it.
-    this.drawEnemies(alpha, t, v)
+    this.drawEnemies()
     this.drawBase(t, v)
+    this.drawProjectiles(alpha, v)
+    this.drawHealthBars()
+    this.drawBuildPreview()
     this.baseFlash = Math.max(0, this.baseFlash - realDt * 2.5)
   }
 
+  // ------------------------------------------------------------- towers
+
+  private drawTowers(alpha: number, v: Rect): void {
+    const ctx = this.ctx
+    const t = this.game.towers
+    const img = this.sprites.atlas.canvas
+    const base = this.sprites.towerBase
+    for (let i = 0; i < t.count; i++) {
+      const x = t.x[i]
+      const y = t.y[i]
+      if (x + TILE < v.x0 || x - TILE > v.x1 || y + TILE < v.y0 || y - TILE > v.y1) continue
+      ctx.drawImage(img, base.sx, base.sy, base.sw, base.sh, x - base.w / 2, y - base.h / 2, base.w, base.h)
+    }
+    // Turrets: one rotated transform each (at most a few hundred towers).
+    const s = this.camS
+    for (let i = 0; i < t.count; i++) {
+      const x = t.x[i]
+      const y = t.y[i]
+      if (x + TILE < v.x0 || x - TILE > v.x1 || y + TILE < v.y0 || y - TILE > v.y1) continue
+      const f = this.sprites.turret[t.type[i]]
+      const a = lerpAngle(t.prevAngle[i], t.angle[i], alpha)
+      const c = Math.cos(a) * s
+      const sn = Math.sin(a) * s
+      ctx.setTransform(c, sn, -sn, c, this.camOx + x * s, this.camOy + y * s)
+      const kick = t.recoil[i] * 2.5
+      ctx.drawImage(img, f.sx, f.sy, f.sw, f.sh, -f.w / 2 - kick, -f.h / 2, f.w, f.h)
+    }
+    ctx.setTransform(s, 0, 0, s, this.camOx, this.camOy)
+  }
+
+  // ------------------------------------------------------------ enemies
+
   /**
-   * Ground enemies, interpolated between the last two steps.
-   * Culled by bounds check for now; feature 3 switches to grid-based culling.
+   * Walks only the grid cells overlapping the view (plus one cell of margin),
+   * so the cost follows what's on screen rather than how many enemies exist.
    */
-  private drawEnemies(alpha: number, t: number, v: Rect): void {
+  private collectVisibleEnemies(alpha: number, t: number, v: Rect): void {
+    const e = this.game.enemies
+    const grid = this.game.grid
+    const pad = grid.cellSize
+    const c0 = grid.col(v.x0 - pad)
+    const c1 = grid.col(v.x1 + pad)
+    const r0 = grid.row(v.y0 - pad)
+    const r1 = grid.row(v.y1 + pad)
+    let n = 0
+    for (let row = r0; row <= r1; row++) {
+      const base = row * grid.cols
+      const start = grid.cellStart[base + c0]
+      const end = grid.cellStart[base + c1 + 1]
+      // Cells in a row are contiguous in `items`, so one run covers the whole span.
+      for (let i = start; i < end; i++) {
+        const s = grid.items[i]
+        if (!e.alive[s]) continue
+        const r = ENEMIES[e.type[s]].radius + 6
+        const x = e.px[s] + (e.x[s] - e.px[s]) * alpha
+        // Small walking bob, phase-shifted per slot so the crowd doesn't move in lockstep.
+        const y = e.py[s] + (e.y[s] - e.py[s]) * alpha - Math.abs(Math.sin(t * 9 + s * 1.7)) * 1.5
+        if (x + r < v.x0 || x - r > v.x1 || y + r < v.y0 || y - r > v.y1) continue
+        this.visSlot[n] = s
+        this.visX[n] = x
+        this.visY[n] = y
+        n++
+      }
+    }
+    this.visCount = n
+    this.drawnEnemies = n
+  }
+
+  private drawEnemies(): void {
     const ctx = this.ctx
     const e = this.game.enemies
     const img = this.sprites.atlas.canvas
     const frames = this.sprites.enemy
-    const active = e.active
-    let drawn = 0
-    for (let k = 0; k < e.count; k++) {
-      const s = active[k]
-      if (!e.alive[s]) continue
-      const f = frames[e.type[s]]
-      const hw = f.w / 2
-      const hh = f.h / 2
-      const x = e.px[s] + (e.x[s] - e.px[s]) * alpha
-      // Small walking bob, phase-shifted per slot so the crowd doesn't move in lockstep.
-      const y = e.py[s] + (e.y[s] - e.py[s]) * alpha - Math.abs(Math.sin(t * 9 + s * 1.7)) * 1.5
-      if (x + hw < v.x0 || x - hw > v.x1 || y + hh < v.y0 || y - hh > v.y1) continue
-      ctx.drawImage(img, f.sx, f.sy, f.sw, f.sh, x - hw, y - hh, f.w, f.h)
-      drawn++
+    const flash = this.sprites.enemyFlash
+    for (let k = 0; k < this.visCount; k++) {
+      const s = this.visSlot[k]
+      const f = e.flashT[s] > 0 ? flash[e.type[s]] : frames[e.type[s]]
+      ctx.drawImage(img, f.sx, f.sy, f.sw, f.sh, this.visX[k] - f.w / 2, this.visY[k] - f.h / 2, f.w, f.h)
     }
-    this.drawnEnemies = drawn
+  }
+
+  /** Damaged enemies only. One path and one fill per colour band. */
+  private drawHealthBars(): void {
+    const ctx = this.ctx
+    const e = this.game.enemies
+    ctx.beginPath()
+    let any = false
+    for (let k = 0; k < this.visCount; k++) {
+      const s = this.visSlot[k]
+      if (e.hp[s] >= e.maxHp[s]) continue
+      const r = ENEMIES[e.type[s]].radius
+      ctx.rect(this.visX[k] - r - 1, this.visY[k] - r - 7, r * 2 + 2, 4)
+      any = true
+    }
+    if (!any) return
+    ctx.fillStyle = HP_BG
+    ctx.fill()
+    for (let band = 0; band < 3; band++) {
+      ctx.beginPath()
+      for (let k = 0; k < this.visCount; k++) {
+        const s = this.visSlot[k]
+        const frac = e.hp[s] / e.maxHp[s]
+        if (frac >= 1 || hpBand(frac) !== band) continue
+        const r = ENEMIES[e.type[s]].radius
+        ctx.rect(this.visX[k] - r, this.visY[k] - r - 6, r * 2 * Math.max(0, frac), 2)
+      }
+      ctx.fillStyle = HP_COLOURS[band]
+      ctx.fill()
+    }
+  }
+
+  // -------------------------------------------------------- projectiles
+
+  /** Bolt tracers: one glow stroke and one core stroke for all of them. */
+  private drawProjectiles(alpha: number, v: Rect): void {
+    const ctx = this.ctx
+    const p = this.game.projectiles
+    if (p.count === 0) return
+    ctx.lineCap = 'round'
+    for (let pass = 0; pass < 2; pass++) {
+      ctx.beginPath()
+      for (let i = 0; i < p.count; i++) {
+        const x = p.px[i] + (p.x[i] - p.px[i]) * alpha
+        const y = p.py[i] + (p.y[i] - p.py[i]) * alpha
+        if (x < v.x0 - 16 || x > v.x1 + 16 || y < v.y0 - 16 || y > v.y1 + 16) continue
+        ctx.moveTo(x, y)
+        ctx.lineTo(x - p.dx[i] * 9, y - p.dy[i] * 9)
+      }
+      if (pass === 0) {
+        ctx.strokeStyle = 'rgba(120, 220, 255, 0.35)'
+        ctx.lineWidth = 5
+      } else {
+        ctx.strokeStyle = '#effcff'
+        ctx.lineWidth = 2
+      }
+      ctx.stroke()
+    }
+  }
+
+  // ----------------------------------------------------------- overlays
+
+  /** Range ring under the selected tower. */
+  private drawSelection(): void {
+    const i = this.controls.selectedTower()
+    if (i < 0) return
+    const t = this.game.towers
+    this.drawRange(t.x[i], t.y[i], TOWERS[t.type[i]].range, true)
+    const ctx = this.ctx
+    ctx.strokeStyle = '#ffe28a'
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.roundRect(t.x[i] - 16, t.y[i] - 16, 32, 32, 8)
+    ctx.stroke()
+  }
+
+  /** Ghost tower on the hovered tile while building: green if allowed, red if not. */
+  private drawBuildPreview(): void {
+    const type = this.controls.buildType
+    if (type < 0 || !this.controls.hoverTile(this.hover)) return
+    const tx = this.hover.x
+    const ty = this.hover.y
+    if (!this.game.map.inBounds(tx, ty)) return
+    const ok = this.game.canPlace(type, tx, ty) === PlaceResult.Ok
+    const ctx = this.ctx
+    const x = (tx + 0.5) * TILE
+    const y = (ty + 0.5) * TILE
+    this.drawRange(x, y, TOWERS[type].range, ok)
+    ctx.fillStyle = ok ? 'rgba(110, 230, 120, 0.28)' : 'rgba(240, 80, 70, 0.32)'
+    ctx.fillRect(tx * TILE, ty * TILE, TILE, TILE)
+    ctx.globalAlpha = 0.6
+    const img = this.sprites.atlas.canvas
+    const b = this.sprites.towerBase
+    const f = this.sprites.turret[type]
+    ctx.drawImage(img, b.sx, b.sy, b.sw, b.sh, x - b.w / 2, y - b.h / 2, b.w, b.h)
+    ctx.drawImage(img, f.sx, f.sy, f.sw, f.sh, x - f.w / 2, y - f.h / 2, f.w, f.h)
+    ctx.globalAlpha = 1
+  }
+
+  private drawRange(x: number, y: number, r: number, ok: boolean): void {
+    const ctx = this.ctx
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, TAU)
+    ctx.fillStyle = ok ? 'rgba(255, 255, 255, 0.07)' : 'rgba(255, 90, 80, 0.08)'
+    ctx.fill()
+    ctx.setLineDash(DASH)
+    ctx.strokeStyle = ok ? 'rgba(255, 255, 255, 0.55)' : 'rgba(255, 120, 110, 0.6)'
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+    ctx.setLineDash(NO_DASH)
   }
 
   /** Copies only the visible part of the pre-rendered map. */
@@ -194,6 +384,17 @@ export class Renderer {
     }
     ctx.fill()
   }
+}
+
+function hpBand(frac: number): number {
+  return frac > 0.6 ? 0 : frac > 0.3 ? 1 : 2
+}
+
+/** Interpolates between two angles along the shorter arc. */
+function lerpAngle(a: number, b: number, t: number): number {
+  let d = b - a
+  d -= Math.round(d / TAU) * TAU
+  return a + d * t
 }
 
 function visible(v: Rect, x: number, y: number, r: number): boolean {

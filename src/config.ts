@@ -43,6 +43,68 @@ export const BASE_REACH = 22
 // ---- Player ----
 
 export const START_LIVES = 20
+export const START_GOLD = 200
+/** Score per gold of kill bounty (wave scaling arrives in feature 5). */
+export const SCORE_PER_BOUNTY = 10
+
+// ---- Combat ----
+
+/** A hit always does at least this fraction of its damage, however high the armor. */
+export const ARMOR_MIN_FRACTION = 0.2
+/** Seconds an enemy flashes white after a hit. */
+export const HIT_FLASH = 0.08
+
+// ---- Spatial grid (ARCHITECTURE.md §4.3) ----
+
+/** Grid cell edge, in world px. */
+export const GRID_CELL = 64
+/** Extra world space the grid covers past each map edge, in world px. */
+export const GRID_MARGIN = 64
+
+// ---- Towers (DOMAIN.md §2.3) ----
+
+export const MAX_TOWERS = 256
+/** Towers re-pick their target at most this often (in steps), or when it's lost. */
+export const RETARGET_STEPS = 6
+/** A turret fires only when aimed within this angle of its target, in radians. */
+export const AIM_TOLERANCE = 0.3
+
+export const TowerType = {
+  Bolt: 0,
+} as const
+export type TowerTypeId = (typeof TowerType)[keyof typeof TowerType]
+
+export interface TowerDef {
+  readonly name: string
+  /** Hotkey shown in the UI (1–5). */
+  readonly key: string
+  readonly cost: number
+  /** Range from the tower centre, in world px. */
+  readonly range: number
+  /** Shots per second. */
+  readonly fireRate: number
+  readonly damage: number
+  /** Projectile speed, in world px per second. */
+  readonly projectileSpeed: number
+  readonly hitsAir: boolean
+  /** Turret turn speed, in radians per second. */
+  readonly turnRate: number
+}
+
+/** Indexed by TowerType. Values are starting points (tuned). */
+export const TOWERS: readonly TowerDef[] = [
+  { name: 'Bolt', key: '1', cost: 50, range: 110, fireRate: 2.5, damage: 12, projectileSpeed: 560, hitsAir: true, turnRate: 14 },
+]
+
+// ---- Projectiles ----
+
+export const MAX_PROJECTILES = 4096
+/** Seconds a projectile may fly before it fizzles. */
+export const PROJECTILE_LIFE = 1.5
+/** Once its target is gone, a projectile flies on for at most this long, in seconds. */
+export const ORPHAN_LIFE = 0.25
+/** Extra hit radius for projectiles, in world px. */
+export const PROJECTILE_RADIUS = 3
 
 // ---- Enemies (DOMAIN.md §2.4) ----
 
@@ -75,6 +137,9 @@ export interface EnemyDef {
 export const ENEMIES: readonly EnemyDef[] = [
   { name: 'Grunt', hp: 40, speed: 44, armor: 0, bounty: 4, leak: 1, radius: 10, air: false },
 ]
+
+/** Largest enemy radius; grid queries are widened by it so edge contact counts. */
+export const MAX_ENEMY_RADIUS = Math.max(...ENEMIES.map((d) => d.radius))
 
 // ---- Camera ----
 

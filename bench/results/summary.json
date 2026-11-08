@@ -1,0 +1,62 @@
+[
+  {
+    "scenario": "stress-fit",
+    "pass": "PASS",
+    "avg fps": "59.9",
+    "p95 ms": "17.60",
+    "fps@p95": "56.8",
+    ">33ms %": "0.17",
+    "sim ms": "0.89",
+    "render ms": "3.30",
+    "min enemies": 5041,
+    "min proj": 1101,
+    "drawn": 5048,
+    "input ms": "21.4 / 53.9",
+    "heap MB": "4.5→4"
+  },
+  {
+    "scenario": "stress-zoom",
+    "pass": "PASS",
+    "avg fps": "60.0",
+    "p95 ms": "17.70",
+    "fps@p95": "56.5",
+    ">33ms %": "0.00",
+    "sim ms": "0.94",
+    "render ms": "1.59",
+    "min enemies": 5041,
+    "min proj": 1101,
+    "drawn": 2291,
+    "input ms": "-",
+    "heap MB": "4.5→4.1"
+  },
+  {
+    "scenario": "stress-interactive",
+    "pass": "PASS",
+    "avg fps": "59.8",
+    "p95 ms": "17.70",
+    "fps@p95": "56.5",
+    ">33ms %": "0.25",
+    "sim ms": "1.05",
+    "render ms": "3.03",
+    "min enemies": 5041,
+    "min proj": 1101,
+    "drawn": 4287,
+    "input ms": "15.2 / 49.4",
+    "heap MB": "4.3→4.8"
+  },
+  {
+    "scenario": "control-interactive",
+    "pass": "PASS",
+    "avg fps": "60.0",
+    "p95 ms": "17.60",
+    "fps@p95": "56.8",
+    ">33ms %": "0.00",
+    "sim ms": "0.03",
+    "render ms": "0.16",
+    "min enemies": 7,
+    "min proj": 0,
+    "drawn": 22,
+    "input ms": "14.6 / 49.7",
+    "heap MB": "4.7→4.8"
+  }
+]

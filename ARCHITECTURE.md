@@ -49,7 +49,7 @@ If the code and this document disagree, fix one of them in the same change. Don'
 | `npm run build` | `tsc` type check, then `vite build` into `dist/` |
 | `npm run preview` | Serves the built `dist/` |
 | `npm run test` | Vitest, run once |
-| `npm run bench` | Builds, serves `dist/`, runs the stress and full-run benchmarks in Chrome, writes `bench/results/*.json` |
+| `npm run bench` | Builds, serves `dist/`, runs the stress scenarios in Chrome (`-- --headless`, `--seconds N`, `--only a,b`), writes `bench/results/*.json` |
 
 ### 1.5 Tools we don't use
 
@@ -82,20 +82,24 @@ src/
     grid.ts             Uniform spatial hash, rebuilt each step by counting sort
     waves.ts            Generates the 50 waves; runtime spawn scheduler
     fx.ts               Particles, beams, rings, floating text (visual-only pools)
-    events.ts           Preallocated event ring: sim → client (sound, toasts, UI)
+    ring.ts             Preallocated integer ring buffer shared by events and commands
+    events.ts           Sim → client events (sound, toasts, UI)
+    commands.ts         Player → sim commands, applied at the start of the next step
     demo.ts             TEMPORARY (features 2–4): trickle and burst Grunt spawns, replaced by waves
-    stress.ts           Stress scenario controller
+    stress.ts           Stress scenario: 100 towers, tops up to 5,000 enemies and 1,000+ projectiles
     bot.ts              Scripted player for balance tests and the full-run benchmark
   render/
     renderer.ts         Canvas 2D renderer: camera transform, culling, draw passes
-    atlas.ts            Builds the sprite atlas at startup (all art drawn in code)
+    atlas.ts            The sprite atlas canvas and its packer
+    sprites.ts          Draws every sprite into the atlas at startup (all art drawn in code)
     background.ts       Pre-renders the static map to one offscreen canvas
     camera.ts           Pan, zoom, world↔screen conversion, view rectangle
   ui/
     debug.ts            TEMPORARY (features 2–8): lives and enemy readout, replaced by the HUD
     hud.ts              DOM HUD; writes only values that changed
     screens.ts          Title, pause, victory, game-over screens
-    input.ts            Pointer and keyboard → command queue
+    input.ts            Camera pan and zoom; turns short presses into click/cancel/hover hooks
+    controls.ts         Build mode, hover tile and selection; queues commands
   audio/
     sfx.ts              Web Audio synth with per-sound rate limiting
   perf/
@@ -319,7 +323,9 @@ Any LOD added must be recorded in the README, with the measurement that justifie
 - **Pass criteria:**
   - p95 frame interval ≤ 22.2 ms, which means at least 45 FPS for 95% of frames.
   - Fewer than 5% of frames above 33 ms.
-- **Benchmark runs.** `?bench=stress` runs a warm-up followed by a fixed measurement window. `?bench=run` lets the bot play all 50 waves at top speed while recording heap samples. Each run puts its results on `window.__bench`.
+- **Benchmark runs.** `?stress&bench=<seconds>` runs a 3 s warm-up followed by a measurement window, and `&zoom=<factor>` starts zoomed in. A full 50-wave run with the bot comes in feature 12. Results go on `window.__bench`, which is also available in production builds when `bench` is in the URL.
+- **A control scenario** runs the same scripted input on a near-empty game, so harness overhead isn't mistaken for game cost.
+- **Benchmarks run on mains power.** On low battery, Chrome caps pages at 30 FPS, headless included.
 - **`npm run bench`** drives both runs in system Chrome through playwright-core, then writes the JSON results and a summary for the README.
 - **Memory check:** after warm-up, the heap during the full run must stay flat, with no upward trend from one wave to the next.
 

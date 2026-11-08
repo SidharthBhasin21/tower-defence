@@ -1,0 +1,54 @@
+{
+  "mode": "normal",
+  "seconds": 20,
+  "zoom": 1.559,
+  "viewport": [
+    1440,
+    900,
+    2
+  ],
+  "stats": {
+    "frames": 1201,
+    "p50": 16.700000762939453,
+    "p95": 17.600000381469727,
+    "p99": 17.700000762939453,
+    "max": 17.799999237060547,
+    "fpsAtP95": 56.81818058668092,
+    "avgFps": 60.0025968778254,
+    "slowPct": 0,
+    "at45Pct": 100,
+    "simAvg": 0.025478767217148552,
+    "simP95": 0.10000002384185791,
+    "simMax": 1.2999999523162842,
+    "renderAvg": 0.15512073303043197,
+    "renderP95": 0.30000001192092896,
+    "renderMax": 2.5,
+    "stepsAvg": 1,
+    "inputAvg": 14.641393408835789,
+    "inputMax": 49.70000076293945,
+    "inputEvents": 488
+  },
+  "counts": {
+    "minEnemies": 7,
+    "avgEnemies": 27,
+    "minProjectiles": 0,
+    "avgProjectiles": 0,
+    "towers": 0,
+    "avgDrawn": 22
+  },
+  "heapMB": {
+    "start": 4.7,
+    "end": 4.8,
+    "max": 4.9
+  },
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
+  "scenario": "control-interactive",
+  "about": "Control: the same scripted input on a near-empty game, to measure what the input harness itself costs",
+  "headless": false,
+  "machine": {
+    "cpu": "Apple M1",
+    "cores": 8,
+    "chrome": "157.0.8103.38"
+  },
+  "errors": []
+}

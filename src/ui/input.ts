@@ -4,9 +4,19 @@ import type { Camera } from '../render/camera.ts'
 /** Pointer travel, in CSS px, before a press counts as a drag instead of a click. */
 const DRAG_THRESHOLD = 5
 
+/** Pointer gestures that aren't camera moves, in CSS px relative to the canvas. */
+export interface PointerHooks {
+  /** Left button pressed and released without dragging. `shift` = keep building. */
+  click(sx: number, sy: number, shift: boolean): void
+  /** Right button pressed and released without dragging. */
+  cancel(): void
+  /** Pointer moved (or left the canvas, with NaN coordinates). */
+  hover(sx: number, sy: number): void
+}
+
 /**
- * Camera controls (feature 1). Later features add clicks for placing and
- * selecting, which is why a drag must pass a threshold before panning.
+ * Camera controls. A press only becomes a drag-pan after DRAG_THRESHOLD px,
+ * so short presses are delivered to `hooks` as clicks.
  *
  * - Drag with any mouse button: pan
  * - Wheel or trackpad pinch: zoom at the cursor
@@ -23,10 +33,14 @@ export class CameraInput {
   private lastX = 0
   private lastY = 0
   private dragging = false
+  private button = 0
+  private readonly hooks: PointerHooks
 
-  constructor(el: HTMLElement, camera: Camera) {
+  constructor(el: HTMLElement, camera: Camera, hooks: PointerHooks) {
     this.el = el
     this.camera = camera
+    this.hooks = hooks
+    el.addEventListener('pointerleave', () => this.hooks.hover(Number.NaN, Number.NaN))
     el.addEventListener('pointerdown', this.onPointerDown)
     el.addEventListener('pointermove', this.onPointerMove)
     el.addEventListener('pointerup', this.onPointerUp)
@@ -58,12 +72,14 @@ export class CameraInput {
     this.downX = this.lastX = e.offsetX
     this.downY = this.lastY = e.offsetY
     this.dragging = false
+    this.button = e.button
     this.el.setPointerCapture(e.pointerId)
     // Middle-click would otherwise start the browser's autoscroll.
     if (e.button === 1) e.preventDefault()
   }
 
   private readonly onPointerMove = (e: PointerEvent): void => {
+    this.hooks.hover(e.offsetX, e.offsetY)
     if (e.pointerId !== this.pointerId) return
     if (!this.dragging) {
       const tx = e.offsetX - this.downX
@@ -79,6 +95,10 @@ export class CameraInput {
 
   private readonly onPointerUp = (e: PointerEvent): void => {
     if (e.pointerId !== this.pointerId) return
+    if (!this.dragging && e.type === 'pointerup') {
+      if (this.button === 0) this.hooks.click(e.offsetX, e.offsetY, e.shiftKey)
+      else if (this.button === 2) this.hooks.cancel()
+    }
     this.pointerId = -1
     this.dragging = false
     this.el.style.cursor = ''

@@ -1,0 +1,54 @@
+{
+  "mode": "stress",
+  "seconds": 20,
+  "zoom": 2.5,
+  "viewport": [
+    1440,
+    900,
+    2
+  ],
+  "stats": {
+    "frames": 1200,
+    "p50": 16.700000762939453,
+    "p95": 17.700000762939453,
+    "p99": 17.700000762939453,
+    "max": 17.799999237060547,
+    "fpsAtP95": 56.4971727059931,
+    "avgFps": 59.99909874553249,
+    "slowPct": 0,
+    "at45Pct": 100,
+    "simAvg": 0.9442500002185503,
+    "simP95": 1.5999999046325684,
+    "simMax": 2.9000000953674316,
+    "renderAvg": 1.5891666664679844,
+    "renderP95": 1.899999976158142,
+    "renderMax": 4.099999904632568,
+    "stepsAvg": 1,
+    "inputAvg": 0,
+    "inputMax": 0,
+    "inputEvents": 0
+  },
+  "counts": {
+    "minEnemies": 5041,
+    "avgEnemies": 5048,
+    "minProjectiles": 1101,
+    "avgProjectiles": 1130,
+    "towers": 100,
+    "avgDrawn": 2291
+  },
+  "heapMB": {
+    "start": 4.5,
+    "end": 4.1,
+    "max": 5.2
+  },
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
+  "scenario": "stress-zoom",
+  "about": "Zoomed in 2.5x at the map centre: culling skips off-screen objects",
+  "headless": false,
+  "machine": {
+    "cpu": "Apple M1",
+    "cores": 8,
+    "chrome": "157.0.8103.38"
+  },
+  "errors": []
+}
