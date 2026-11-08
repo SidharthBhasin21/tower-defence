@@ -1,6 +1,6 @@
 import './style.css'
 import { Sfx, Sound } from './audio/sfx.ts'
-import { ENEMIES, EnemyType, GAME_SPEEDS } from './config.ts'
+import { DT, ENEMIES, EnemyType, GAME_SPEEDS } from './config.ts'
 import { GameLoop } from './loop.ts'
 import { PerfOverlay } from './perf/overlay.ts'
 import { FrameRecorder, type FrameStats } from './perf/recorder.ts'
@@ -9,6 +9,7 @@ import { Renderer } from './render/renderer.ts'
 import { Cmd } from './sim/commands.ts'
 import { Ev } from './sim/events.ts'
 import { Game, Phase, PlaceResult, UpgradeResult } from './sim/game.ts'
+import { Bot, REFERENCE_PLAN } from './sim/bot.ts'
 import { StressController } from './sim/stress.ts'
 import { Controls } from './ui/controls.ts'
 import { Hud } from './ui/hud.ts'
@@ -26,11 +27,17 @@ if (!canvas || !ui) throw new Error('Missing #game canvas or #ui layer')
 //   &bench=<seconds>   measure for that long after a 3 s warm-up; results on window.__bench
 //   &zoom=<factor>     start zoomed in at the map centre (to see culling at work)
 //   ?play              skip the title screen (used by scripts/shot.mjs)
+//   ?bot               the reference bot plays a normal game (src/sim/bot.ts)
+//   &speed=<1|2|4>     start at that game speed (not saved)
+//   &bench=full        measure a whole game, start to end, with a heap sample per wave
 const params = new URLSearchParams(location.search)
 const stressMode = params.has('stress')
-const benchSeconds = Number(params.get('bench') ?? 0)
+const botMode = params.has('bot')
+const fullRun = params.get('bench') === 'full'
+const benchSeconds = fullRun ? 0 : Number(params.get('bench') ?? 0)
 const startZoom = Number(params.get('zoom') ?? 0)
-const skipTitle = stressMode || benchSeconds > 0 || params.has('play')
+const startSpeed = GAME_SPEEDS.indexOf(Number(params.get('speed')) as (typeof GAME_SPEEDS)[number])
+const skipTitle = stressMode || botMode || benchSeconds > 0 || fullRun || params.has('play')
 
 const game = new Game()
 const camera = new Camera()
@@ -38,8 +45,10 @@ const controls = new Controls(game, camera)
 const renderer = new Renderer(canvas, camera, game, controls)
 const input = new CameraInput(canvas, camera, controls)
 let stress = new StressController()
+const bot = botMode ? new Bot(game, REFERENCE_PLAN) : null
 const panel = new TowerPanel(ui, game, controls)
-const recorder = new FrameRecorder()
+// A full run at 4× is about 6.5 minutes; give it room for 18 minutes of frames.
+const recorder = new FrameRecorder(fullRun ? 1 << 16 : undefined)
 recorder.watchInput(window)
 const overlay = new PerfOverlay(ui, recorder, game, stressMode)
 
@@ -72,7 +81,7 @@ let frameNow = 0
 
 const settings = loadSettings()
 const sfx = new Sfx(settings.muted)
-let speedIndex = Math.min(Math.max(settings.speedIndex, 0), GAME_SPEEDS.length - 1)
+let speedIndex = startSpeed >= 0 ? startSpeed : Math.min(Math.max(settings.speedIndex, 0), GAME_SPEEDS.length - 1)
 
 /** Panels that stop the simulation while open (the game-over screens stop it via the sim phase). */
 function syncPause(): void {
@@ -83,6 +92,7 @@ function syncPause(): void {
 function setSpeed(i: number): void {
   speedIndex = i
   loop.stepper.speed = GAME_SPEEDS[i]
+  if (startSpeed >= 0) return // a URL speed is for this visit only
   settings.speedIndex = i
   saveSettings(settings)
 }
@@ -183,7 +193,7 @@ window.addEventListener('keydown', (e) => {
 /** Shows the end screen and records the best score. */
 function endGame(won: boolean): void {
   controls.buildType = -1
-  const newBest = !stressMode && saveBest(game.score)
+  const newBest = !stressMode && !botMode && saveBest(game.score)
   screens.show(won ? 'victory' : 'defeat', {
     score: game.score,
     best: loadBest(),
@@ -259,11 +269,15 @@ interface BenchResult {
   /** Lowest and average live counts seen at the end of a frame while measuring. */
   counts: { minEnemies: number; avgEnemies: number; minProjectiles: number; avgProjectiles: number; towers: number; avgDrawn: number }
   heapMB: { start: number; end: number; max: number } | null
+  /** Full runs only: how the game ended, and the heap and live counts as each wave cleared. */
+  outcome?: { phase: string; wave: number; cleared: number; lives: number; score: number; gameMinutes: number }
+  perWave?: { wave: number; heapMB: number; enemies: number; projectiles: number; particles: number }[]
+  peaks?: { enemies: number; projectiles: number; particles: number }
   userAgent: string
 }
 const WARMUP_MS = 3000
 const bench = {
-  phase: benchSeconds > 0 ? 'warmup' : 'off',
+  phase: benchSeconds > 0 || fullRun ? 'warmup' : 'off',
   startAt: -1,
   endAt: -1,
   frames: 0,
@@ -275,6 +289,11 @@ const bench = {
   heapStart: 0,
   heapMax: 0,
   result: null as BenchResult | null,
+  lastCleared: 0,
+  perWave: [] as NonNullable<BenchResult['perWave']>,
+  peakEnemies: 0,
+  peakProjectiles: 0,
+  peakParticles: 0,
 }
 
 function heapMB(): number {
@@ -288,7 +307,7 @@ function benchFrame(now: number): void {
   if (bench.phase === 'warmup') {
     if (now < bench.startAt) return
     bench.phase = 'measure'
-    bench.endAt = now + benchSeconds * 1000
+    bench.endAt = fullRun ? Infinity : now + benchSeconds * 1000
     bench.heapStart = bench.heapMax = heapMB()
     recorder.reset()
     return
@@ -302,12 +321,21 @@ function benchFrame(now: number): void {
   bench.sumProjectiles += pr
   bench.sumDrawn += renderer.drawnEnemies
   if ((bench.frames & 31) === 0) bench.heapMax = Math.max(bench.heapMax, heapMB())
-  if (now < bench.endAt) return
+  if (fullRun) {
+    bench.peakEnemies = Math.max(bench.peakEnemies, en)
+    bench.peakProjectiles = Math.max(bench.peakProjectiles, pr)
+    bench.peakParticles = Math.max(bench.peakParticles, game.particles.count)
+    if (game.cleared !== bench.lastCleared) {
+      bench.lastCleared = game.cleared
+      bench.perWave.push({ wave: game.cleared, heapMB: +heapMB().toFixed(2), enemies: en, projectiles: pr, particles: game.particles.count })
+    }
+    if (game.phase === Phase.Playing) return
+  } else if (now < bench.endAt) return
   bench.phase = 'done'
   const end = heapMB()
   bench.result = {
-    mode: stressMode ? 'stress' : 'normal',
-    seconds: benchSeconds,
+    mode: stressMode ? 'stress' : botMode ? 'bot' : 'normal',
+    seconds: fullRun ? +((now - bench.startAt) / 1000).toFixed(1) : benchSeconds,
     zoom: +camera.zoom.toFixed(3),
     viewport: [window.innerWidth, window.innerHeight, window.devicePixelRatio],
     stats: recorder.stats(),
@@ -322,6 +350,18 @@ function benchFrame(now: number): void {
     heapMB: end > 0 ? { start: +bench.heapStart.toFixed(1), end: +end.toFixed(1), max: +Math.max(bench.heapMax, end).toFixed(1) } : null,
     userAgent: navigator.userAgent,
   }
+  if (fullRun) {
+    bench.result.outcome = {
+      phase: game.phase === Phase.Won ? 'won' : game.phase === Phase.Lost ? 'lost' : 'playing',
+      wave: game.wave,
+      cleared: game.cleared,
+      lives: game.lives,
+      score: game.score,
+      gameMinutes: +((game.tick * DT) / 60).toFixed(1),
+    }
+    bench.result.perWave = bench.perWave
+    bench.result.peaks = { enemies: bench.peakEnemies, projectiles: bench.peakProjectiles, particles: bench.peakParticles }
+  }
 }
 
 // ---- The loop ----
@@ -329,6 +369,7 @@ function benchFrame(now: number): void {
 const loop = new GameLoop({
   step: () => {
     if (stressMode) stress.step(game)
+    bot?.step()
     game.step()
   },
   render: (alpha, realDt, now) => {
@@ -360,7 +401,7 @@ syncPause()
 loop.start()
 
 // Benchmark results are readable by scripts/bench.mjs, in production builds too.
-if (benchSeconds > 0) Object.assign(window, { __bench: bench })
+if (benchSeconds > 0 || fullRun) Object.assign(window, { __bench: bench })
 
 // Dev builds only: expose state for scripts/shot.mjs and console debugging.
 if (import.meta.env.DEV) Object.assign(window, { __td: { game, camera, renderer, controls, screens, hud, sfx, loop, recorder } })

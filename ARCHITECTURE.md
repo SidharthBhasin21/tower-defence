@@ -340,11 +340,13 @@ Any LOD added must be recorded in the README, with the measurement that justifie
 - **Pass criteria:**
   - p95 frame interval ≤ 22.2 ms, which means at least 45 FPS for 95% of frames.
   - Fewer than 5% of frames above 33 ms.
-- **Benchmark runs.** `?stress&bench=<seconds>` runs a 3 s warm-up followed by a measurement window, and `&zoom=<factor>` starts zoomed in. A full 50-wave run with the bot comes in feature 12. Results go on `window.__bench`, which is also available in production builds when `bench` is in the URL.
+- **Benchmark runs.** `?stress&bench=<seconds>` runs a 3 s warm-up followed by a measurement window, and `&zoom=<factor>` starts zoomed in. Results go on `window.__bench`, which is also available in production builds when `bench` is in the URL.
+- **Full run.** `?bot&speed=4&bench=full` has the reference bot (`sim/bot.ts`) play a whole normal game at 4× speed, the heaviest normal setting (4 steps per frame). Every frame from the end of the warm-up to victory or defeat is measured, and the heap, live enemies, projectiles and particles are sampled each time a wave clears. The recorder gets a 65,536-frame ring for this (about 18 minutes at 60 FPS), so no frame is dropped from the statistics.
 - **A control scenario** runs the same scripted input on a near-empty game, so harness overhead isn't mistaken for game cost.
 - **Benchmarks run on mains power.** On low battery, Chrome caps pages at 30 FPS, headless included.
-- **`npm run bench`** drives both runs in system Chrome through playwright-core, then writes the JSON results and a summary for the README.
-- **Memory check:** after warm-up, the heap during the full run must stay flat, with no upward trend from one wave to the next.
+- **`npm run bench`** drives the stress scenarios (and, with `--full`, the full run) in system Chrome through playwright-core, then writes the JSON results and a summary for the README. Chrome is launched with `--enable-precise-memory-info` so heap samples aren't rounded.
+- **Offline check:** the bench records every request each page makes. Anything not served by the local preview server (other than `data:` and `blob:` URLs) is listed in the results and fails the scenario.
+- **Memory check:** after warm-up, the heap during the full run must stay flat, with no upward trend from one wave to the next. The bench fits a least-squares line to the per-wave heap samples from wave 5 on; the slope must be within ±0.05 MB per wave (under 2.5 MB over the whole game), and the run must end in victory.
 
 ---
 

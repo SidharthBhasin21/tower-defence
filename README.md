@@ -2,21 +2,18 @@
 
 A single-player tower defense game for desktop browsers. It runs entirely offline, with no server and no external assets. You defend a base against 50 waves by placing, upgrading and selling towers that fire automatically.
 
-> **Status:** in development, being built feature by feature. Done so far: **feature 11 (balance)**. The game is playable from start to finish:
-> - Five towers: Bolt, Cannon, Frost, Arc and Sniper, each attacking in its own way.
-> - Seven enemies: Grunt, Runner, Swarmling, Brute (armored), Wisp (flies), Mender (heals) and the Warlord boss (splits into Runners).
-> - Towers upgrade to level 4 and sell for 70% of what was spent on them. Each tower has a targeting mode (First, Last, Strongest or Closest), all set from a tower panel.
-> - 50 waves with a countdown between them, plus a bonus for calling the next wave early.
-> - Victory and game-over screens, with the best score kept on this device.
-> - Pause, three game speeds, and restart.
-> - A HUD (lives, gold, wave, score, enemies left, next-wave preview with a **Send now** button, pause/speed/sound/restart buttons), a build bar of tower cards, toasts, and a **How to play** screen.
-> - Sound effects made in code (each tower, kills, explosions, leaks, building, upgrades, waves, bosses, win and loss), death bursts, sparks, floating gold numbers and screen shake.
->
-> - Balanced with a scripted bot: a good mixed defence wins, while a weak defence or any single tower type loses. See [Balance](#balance).
->
-> Still to come: feature 12, the final stress test, benchmarks and README.
+**What's in it:**
+- **Five towers:** Bolt, Cannon, Frost, Arc and Sniper, each attacking in its own way. Towers upgrade to level 4, sell for 70% of what was spent on them, and each has a targeting mode (First, Last, Strongest or Closest).
+- **Seven enemies:** Grunt, Runner, Swarmling, Brute (armored), Wisp (flies), Mender (heals) and the Warlord boss (splits into Runners).
+- **50 generated waves** that never get easier, with a countdown between them and a bonus for calling the next wave early.
+- **Lives, gold and score,** victory and game-over screens, and the best score kept on this device.
+- **Pause, three game speeds (1×, 2×, 4×) and restart.**
+- **A HUD:** lives, gold, wave, score, enemies left, a next-wave preview with a **Send now** button, pause/speed/sound/restart buttons, a build bar of tower cards, toasts, and a **How to play** screen.
+- **Polish:** sound effects made in code, death bursts, sparks, floating gold numbers, screen shake and hit flashes. There are no image or audio files.
+- **Balanced with a scripted bot:** a good mixed defence wins, while a weak defence or any single tower type loses. See [Balance](#balance).
+- **Performance:** 5,000 enemies, 100 towers and 1,000+ projectiles at a steady 60 FPS on an Apple M1. See [Results](#results).
 
-### Controls so far
+### Controls
 
 | Input | Action |
 |---|---|
@@ -35,7 +32,17 @@ A single-player tower defense game for desktop browsers. It runs entirely offlin
 | `M` | Mute or unmute (remembered) |
 | `` ` `` (backtick) | Show or hide the performance overlay |
 
-Add `?play` to the URL to skip the title screen. Open `/?stress` (or use the title screen's **Stress test** button) for the stress scenario: 5,000 enemies, 100 towers and 1,000+ projectiles at once. The game stays fully playable there.
+### URL modes
+
+| URL | What it does |
+|---|---|
+| `/` | The game, starting at the title screen |
+| `/?play` | Skip the title screen |
+| `/?stress` | The stress scenario: 5,000 enemies, 100 towers and 1,000+ projectiles at once, with the perf overlay on. The game stays fully playable. Also on the title screen's **Stress test** button |
+| `/?bot` | Watch the reference bot play a normal game. Add `&speed=4` to start at 4× |
+| `&bench=20` | Measure for 20 s after a 3 s warm-up (results on `window.__bench`) |
+| `&bench=full` | With `?bot`: measure a whole game, start to end, with a heap sample after each wave |
+| `&zoom=2.5` | Start zoomed in at the map centre |
 
 ## Running it
 
@@ -80,8 +87,6 @@ It builds towers on the listed tiles with real mouse clicks (`k@tx,ty` picks tow
 - [CLAUDE.md](CLAUDE.md): the engine rules that can't be broken.
 
 ## Architecture
-
-*Being written as features land.* So far:
 
 - **Stack:** Vite 8 and TypeScript 7, with strict type checking. The game has no runtime dependencies.
 - **Randomness:** gameplay uses a seeded random number generator (`src/rng.ts`, mulberry32) instead of `Math.random`, so the same seed always replays the same run.

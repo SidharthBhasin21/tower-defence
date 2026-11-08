@@ -63,6 +63,8 @@ export class Bot {
   /** Per tile and type: how much path the type covers from there. */
   private readonly coverage: Float32Array[] = []
   private readonly mixTotal: number
+  /** Towers owned per type (scratch, reused so deciding allocates nothing). */
+  private readonly owned = new Int32Array(TOWERS.length)
 
   constructor(g: Game, plan: BotPlan) {
     this.g = g
@@ -116,7 +118,8 @@ export class Bot {
   /** The type furthest below its share of the mix. */
   private nextType(): number {
     const g = this.g
-    const owned = [0, 0, 0, 0, 0]
+    const owned = this.owned
+    owned.fill(0)
     for (let i = 0; i < g.towers.count; i++) owned[g.towers.type[i]]++
     const total = g.towers.count + 1
     let best = -1
@@ -133,7 +136,11 @@ export class Bot {
   }
 
   private freeSite(type: number): number {
-    for (const tile of this.sites[type]) if (this.g.towers.at(tile % MAP_W, (tile / MAP_W) | 0) < 0) return tile
+    const sites = this.sites[type]
+    for (let k = 0; k < sites.length; k++) {
+      const tile = sites[k]
+      if (this.g.towers.at(tile % MAP_W, (tile / MAP_W) | 0) < 0) return tile
+    }
     return -1
   }
 
