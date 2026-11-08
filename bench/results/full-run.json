@@ -1,0 +1,421 @@
+{
+  "mode": "bot",
+  "seconds": 388.9,
+  "zoom": 0.877,
+  "viewport": [
+    1440,
+    900,
+    2
+  ],
+  "stats": {
+    "frames": 23253,
+    "p50": 16.700000762939453,
+    "p95": 17.600000381469727,
+    "p99": 17.700000762939453,
+    "max": 215.8000030517578,
+    "fpsAtP95": 56.81818058668092,
+    "avgFps": 59.78698401056207,
+    "slowPct": 0.12471509052595364,
+    "at45Pct": 99.86238334838515,
+    "simAvg": 0.11984690140125516,
+    "simP95": 0.20000004768371582,
+    "simMax": 21.100000381469727,
+    "renderAvg": 0.3953984429624749,
+    "renderP95": 0.699999988079071,
+    "renderMax": 111.69999694824219,
+    "stepsAvg": 4.010536274889262,
+    "inputAvg": 0,
+    "inputMax": 0,
+    "inputEvents": 0
+  },
+  "counts": {
+    "minEnemies": 0,
+    "avgEnemies": 50,
+    "minProjectiles": 0,
+    "avgProjectiles": 1,
+    "towers": 33,
+    "avgDrawn": 50
+  },
+  "heapMB": {
+    "start": 5.9,
+    "end": 5.9,
+    "max": 7.3
+  },
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
+  "outcome": {
+    "phase": "won",
+    "wave": 50,
+    "cleared": 50,
+    "lives": 20,
+    "score": 434790,
+    "gameMinutes": 26.1
+  },
+  "perWave": [
+    {
+      "wave": 1,
+      "heapMB": 6.34,
+      "enemies": 12,
+      "projectiles": 0,
+      "particles": 24
+    },
+    {
+      "wave": 2,
+      "heapMB": 7.33,
+      "enemies": 15,
+      "projectiles": 0,
+      "particles": 22
+    },
+    {
+      "wave": 3,
+      "heapMB": 5.93,
+      "enemies": 16,
+      "projectiles": 0,
+      "particles": 25
+    },
+    {
+      "wave": 4,
+      "heapMB": 6.66,
+      "enemies": 26,
+      "projectiles": 0,
+      "particles": 14
+    },
+    {
+      "wave": 5,
+      "heapMB": 5.91,
+      "enemies": 29,
+      "projectiles": 0,
+      "particles": 24
+    },
+    {
+      "wave": 6,
+      "heapMB": 5.26,
+      "enemies": 26,
+      "projectiles": 1,
+      "particles": 22
+    },
+    {
+      "wave": 7,
+      "heapMB": 5.2,
+      "enemies": 18,
+      "projectiles": 0,
+      "particles": 33
+    },
+    {
+      "wave": 8,
+      "heapMB": 5.57,
+      "enemies": 12,
+      "projectiles": 1,
+      "particles": 33
+    },
+    {
+      "wave": 9,
+      "heapMB": 5.67,
+      "enemies": 23,
+      "projectiles": 0,
+      "particles": 23
+    },
+    {
+      "wave": 10,
+      "heapMB": 5.49,
+      "enemies": 41,
+      "projectiles": 0,
+      "particles": 64
+    },
+    {
+      "wave": 11,
+      "heapMB": 5.98,
+      "enemies": 29,
+      "projectiles": 0,
+      "particles": 23
+    },
+    {
+      "wave": 12,
+      "heapMB": 5.78,
+      "enemies": 27,
+      "projectiles": 0,
+      "particles": 13
+    },
+    {
+      "wave": 13,
+      "heapMB": 5.65,
+      "enemies": 27,
+      "projectiles": 0,
+      "particles": 23
+    },
+    {
+      "wave": 14,
+      "heapMB": 5.73,
+      "enemies": 29,
+      "projectiles": 0,
+      "particles": 13
+    },
+    {
+      "wave": 15,
+      "heapMB": 5.77,
+      "enemies": 30,
+      "projectiles": 0,
+      "particles": 19
+    },
+    {
+      "wave": 16,
+      "heapMB": 6.01,
+      "enemies": 33,
+      "projectiles": 0,
+      "particles": 23
+    },
+    {
+      "wave": 17,
+      "heapMB": 5.35,
+      "enemies": 35,
+      "projectiles": 0,
+      "particles": 23
+    },
+    {
+      "wave": 18,
+      "heapMB": 5.5,
+      "enemies": 37,
+      "projectiles": 1,
+      "particles": 23
+    },
+    {
+      "wave": 19,
+      "heapMB": 5.68,
+      "enemies": 37,
+      "projectiles": 1,
+      "particles": 23
+    },
+    {
+      "wave": 20,
+      "heapMB": 5.94,
+      "enemies": 63,
+      "projectiles": 3,
+      "particles": 77
+    },
+    {
+      "wave": 21,
+      "heapMB": 5.67,
+      "enemies": 42,
+      "projectiles": 0,
+      "particles": 23
+    },
+    {
+      "wave": 22,
+      "heapMB": 5.76,
+      "enemies": 40,
+      "projectiles": 0,
+      "particles": 13
+    },
+    {
+      "wave": 23,
+      "heapMB": 5.89,
+      "enemies": 42,
+      "projectiles": 2,
+      "particles": 13
+    },
+    {
+      "wave": 24,
+      "heapMB": 6.02,
+      "enemies": 44,
+      "projectiles": 1,
+      "particles": 13
+    },
+    {
+      "wave": 25,
+      "heapMB": 5.41,
+      "enemies": 46,
+      "projectiles": 0,
+      "particles": 37
+    },
+    {
+      "wave": 26,
+      "heapMB": 5.61,
+      "enemies": 47,
+      "projectiles": 0,
+      "particles": 33
+    },
+    {
+      "wave": 27,
+      "heapMB": 5.89,
+      "enemies": 49,
+      "projectiles": 0,
+      "particles": 31
+    },
+    {
+      "wave": 28,
+      "heapMB": 5.41,
+      "enemies": 51,
+      "projectiles": 0,
+      "particles": 23
+    },
+    {
+      "wave": 29,
+      "heapMB": 5.52,
+      "enemies": 55,
+      "projectiles": 2,
+      "particles": 22
+    },
+    {
+      "wave": 30,
+      "heapMB": 5.51,
+      "enemies": 82,
+      "projectiles": 1,
+      "particles": 89
+    },
+    {
+      "wave": 31,
+      "heapMB": 5.94,
+      "enemies": 69,
+      "projectiles": 3,
+      "particles": 23
+    },
+    {
+      "wave": 32,
+      "heapMB": 5.38,
+      "enemies": 65,
+      "projectiles": 1,
+      "particles": 43
+    },
+    {
+      "wave": 33,
+      "heapMB": 5.8,
+      "enemies": 61,
+      "projectiles": 1,
+      "particles": 20
+    },
+    {
+      "wave": 34,
+      "heapMB": 5.3,
+      "enemies": 61,
+      "projectiles": 2,
+      "particles": 15
+    },
+    {
+      "wave": 35,
+      "heapMB": 5.59,
+      "enemies": 62,
+      "projectiles": 2,
+      "particles": 13
+    },
+    {
+      "wave": 36,
+      "heapMB": 5.89,
+      "enemies": 64,
+      "projectiles": 0,
+      "particles": 34
+    },
+    {
+      "wave": 37,
+      "heapMB": 5.81,
+      "enemies": 66,
+      "projectiles": 2,
+      "particles": 23
+    },
+    {
+      "wave": 38,
+      "heapMB": 5.36,
+      "enemies": 69,
+      "projectiles": 2,
+      "particles": 23
+    },
+    {
+      "wave": 39,
+      "heapMB": 5.31,
+      "enemies": 72,
+      "projectiles": 1,
+      "particles": 33
+    },
+    {
+      "wave": 40,
+      "heapMB": 5.38,
+      "enemies": 120,
+      "projectiles": 7,
+      "particles": 74
+    },
+    {
+      "wave": 41,
+      "heapMB": 5.4,
+      "enemies": 77,
+      "projectiles": 5,
+      "particles": 36
+    },
+    {
+      "wave": 42,
+      "heapMB": 5.76,
+      "enemies": 82,
+      "projectiles": 2,
+      "particles": 30
+    },
+    {
+      "wave": 43,
+      "heapMB": 5.31,
+      "enemies": 82,
+      "projectiles": 1,
+      "particles": 37
+    },
+    {
+      "wave": 44,
+      "heapMB": 5.37,
+      "enemies": 79,
+      "projectiles": 0,
+      "particles": 45
+    },
+    {
+      "wave": 45,
+      "heapMB": 5.78,
+      "enemies": 81,
+      "projectiles": 1,
+      "particles": 43
+    },
+    {
+      "wave": 46,
+      "heapMB": 5.54,
+      "enemies": 82,
+      "projectiles": 1,
+      "particles": 35
+    },
+    {
+      "wave": 47,
+      "heapMB": 5.29,
+      "enemies": 84,
+      "projectiles": 3,
+      "particles": 33
+    },
+    {
+      "wave": 48,
+      "heapMB": 5.75,
+      "enemies": 85,
+      "projectiles": 5,
+      "particles": 13
+    },
+    {
+      "wave": 49,
+      "heapMB": 5.65,
+      "enemies": 90,
+      "projectiles": 1,
+      "particles": 53
+    },
+    {
+      "wave": 50,
+      "heapMB": 5.93,
+      "enemies": 0,
+      "projectiles": 4,
+      "particles": 60
+    }
+  ],
+  "peaks": {
+    "enemies": 134,
+    "projectiles": 10,
+    "particles": 268
+  },
+  "scenario": "full-run",
+  "about": "The reference bot plays all 50 waves of a normal game at 4x speed; every frame measured, heap sampled per wave",
+  "headless": false,
+  "machine": {
+    "cpu": "Apple M1",
+    "cores": 8,
+    "chrome": "157.0.8103.38"
+  },
+  "errors": [],
+  "externalRequests": [],
+  "heapSlopeMBPerWave": -0.0023
+}

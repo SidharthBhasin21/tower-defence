@@ -68,6 +68,16 @@ npm run build
 npm run balance -- --margin --waves
 ```
 
+```bash
+npm run bench
+```
+
+```bash
+npm run bench -- --full
+```
+
+`npm run bench` builds the game and measures the four stress scenarios in your installed Google Chrome (about 2 minutes); `--full` adds a whole 50-wave game played by the bot (about 7 more minutes). Run it on mains power with other apps closed. See [How performance is measured](#how-performance-is-measured).
+
 `npm run balance` plays full 50-wave games with the scripted bot in Node (no browser, about 3 seconds) and prints how far each strategy gets. See [Balance](#balance).
 
 `npm run build` type-checks the project and outputs a static site to `dist/`. Open it with `npm run preview`.
@@ -249,13 +259,13 @@ The seed only changes where enemies walk within their lane, so all seeds give ne
 Measured with the per-frame CPU split from the recorder below:
 
 - **Simulation is cheap.** With 5,000 enemies, 100 towers and 1,000+ projectiles, one 1/60 s step takes about **0.7–1 ms** on an Apple M1. Enemy movement is a table lookup, the grid rebuild is linear, and targeting is bounded by the 0.1 s re-pick interval.
-- **Rendering is the larger share,** at about **3 ms of JavaScript per frame** with the whole map visible. Most of that is the ~5,000 enemy `drawImage` calls and the ~1,000 tracer segments.
+- **Rendering is the larger share,** at about **4 ms of JavaScript per frame** with the whole map visible. Most of that is the ~5,000 enemy `drawImage` calls and the ~1,000 tracer segments.
 - **GPU fill is the next limit.** The canvas commands are executed by the GPU after the JavaScript returns, so the JavaScript time leaves this out. Zoomed in, each enemy sprite covers many more device pixels (about 120×120 at 2.5× zoom on a 2× screen), and transparent padding inside a sprite frame is still filled. That's why sprite frames are cropped tightly.
 - **The machine's power state can cap the frame rate.** On battery at or below 20%, Chrome caps pages at 30 FPS. Even an empty page then measures 30 FPS. Benchmarks must run on mains power (see below).
 
 ## Optimizations
 
-- **Typed-array storage** for enemies, projectiles and towers, allocated once. There's no per-frame garbage, and the heap stayed at about 4–5 MB through every stress run.
+- **Typed-array storage** for enemies, projectiles, towers and effects, allocated once. There's no per-frame garbage: the heap stays at about 5–6 MB through every stress run and through a whole 50-wave game.
 - **Path lookup tables** instead of per-enemy pathfinding.
 - **A counting-sort spatial grid** for targeting, stray-projectile hits and culling.
 - **Target stickiness:** towers re-query at most every 6 steps.
@@ -279,7 +289,7 @@ Measured with the per-frame CPU split from the recorder below:
 - **`npm run bench`** (`scripts/bench.mjs`):
   - It builds the production bundle, serves it with `vite preview`, and opens it in the installed Google Chrome through playwright-core.
   - The viewport is 1440×900 at 2× pixel ratio.
-  - Each scenario warms up for 3 s, then records every frame for 20 s.
+  - Each stress scenario warms up for 3 s, then records every frame for 20 s. With `--full`, a fifth scenario plays a whole 50-wave game with the bot at 4× speed and records every frame of it.
   - It writes `bench/results/<scenario>.json` and prints a summary table.
   - The four scenarios:
 
@@ -289,38 +299,55 @@ Measured with the per-frame CPU split from the recorder below:
     | `stress-zoom` | Zoomed 2.5× at the centre, so culling skips off-screen objects |
     | `stress-interactive` | Whole map while the script pans, zooms, clicks towers and toggles build mode |
     | `control-interactive` | The same input on a near-empty game, to show what the input harness itself costs |
+    | `full-run` (`--full`) | The reference bot plays all 50 waves of a normal game at 4× speed |
 - **During each run, the script also records:**
   - the lowest enemy and projectile counts seen at the end of any frame, to prove the load was held the whole time;
   - JavaScript heap at the start, end and peak;
-  - the CPU, Chrome version and viewport.
+  - the CPU, Chrome version and viewport;
+  - every network request that didn't come from the local server (there must be none);
+  - for the full run: how the game ended, peak counts, and the heap after every wave. The heap trend must stay within ±0.05 MB per wave.
 - **Run it on mains power with the Chrome window in front.** Low battery makes Chrome cap pages at 30 FPS. That also caps headless runs, and a launch flag doesn't lift it.
 
 ### Results
 
-Apple M1 (8 cores), Chrome 157, headed window, 1440×900 at 2× pixel ratio, mains power. Each scenario: 3 s warm-up, then 20 s of measured frames.
+Apple M1 (8 cores), Chrome 157, headed window, 1440×900 at 2× pixel ratio. Final runs, with everything on: HUD, particles, floating text and sound.
+
+**Stress test** (3 s warm-up, then 20 s of measured frames per scenario):
 
 | Scenario | Result | Avg FPS | p95 frame | FPS at p95 | Frames over 33 ms | Sim CPU | Render CPU | Min enemies | Min projectiles | Drawn | Heap start → end |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| `stress-fit` | **PASS** | 59.9 | 17.6 ms | 56.8 | 0.17% | 1.00 ms | 3.92 ms | 5,094 | 1,103 | 5,145 | 5.7 → 5.2 MB |
-| `stress-zoom` | **PASS** | 60.0 | 17.6 ms | 56.8 | 0.00% | 1.09 ms | 1.77 ms | 5,094 | 1,103 | 1,673 | 6.1 → 5.4 MB |
-| `stress-interactive` | **PASS** | 59.4 | 17.6 ms | 56.8 | 0.25% | 1.01 ms | 3.70 ms | 5,092 | 1,103 | 4,944 | 6.0 → 6.7 MB |
-| `control-interactive` | **PASS** | 59.6 | 17.6 ms | 56.8 | 0.17% | 0.02 ms | 0.12 ms | – | – | 0 | 5.1 → 5.3 MB |
+| `stress-fit` | **PASS** | 59.9 | 17.6 ms | 56.8 | 0.08% | 0.96 ms | 3.80 ms | 5,105 | 1,106 | 5,146 | 5.3 → 5.5 MB |
+| `stress-zoom` | **PASS** | 60.0 | 17.6 ms | 56.8 | 0.00% | 1.05 ms | 1.68 ms | 5,105 | 1,106 | 1,542 | 5.8 → 5.3 MB |
+| `stress-interactive` | **PASS** | 57.0 | 17.6 ms | 56.8 | 1.58% | 1.14 ms | 3.98 ms | 5,105 | 1,106 | 4,939 | 5.8 → 5.5 MB |
+| `control-interactive` | **PASS** | 60.0 | 17.6 ms | 56.8 | 0.00% | 0.02 ms | 0.13 ms | – | – | 0 | 5.1 → 5.4 MB |
 
-*Measured after feature 10 (load average about 6), with the HUD, particles, floating text and sound on, and all 100 stress towers at **level 4**, the heaviest case: longest ranges and most chain jumps. Stress enemies have 1,800 health so most survive.*
+The stress load, held in every measured frame:
+- **Enemies:** at least 5,105, a mix of all seven types (30% Grunt, 20% Runner, 24% Swarmling, 10% Brute, 10% Wisp, 5% Mender, 1% Warlord). That includes about 500 flyers, Mender heal pulses and Warlord splits.
+- **Towers:** 100, all at level 4 (the heaviest case: longest ranges, most chain jumps), a mix of all five types (50 Bolt, 20 Cannon, 10 each of Frost, Arc and Sniper).
+- **Projectiles:** at least 1,106, plus lightning, tracers, rings and 2,300–3,900 live particles.
 
-**Background load matters.** A first run after feature 9, with the load average at 31 (another browser at 100% CPU plus Spotlight indexing), failed `stress-fit` and `stress-interactive`: 18% and 9% of frames over 33 ms. Its *simulation* time also more than doubled (2.8 ms vs 1.2 ms), and the HUD can't affect that, so the machine was the cause. An A/B check with the HUD shown and hidden confirmed it. The rerun above was taken at a load average of about 13 falling to 6. Final numbers for feature 12 will be taken on an idle machine.
-- **Towers:** a mix of all five types (50 Bolt, 20 Cannon, 10 each of Frost, Arc and Sniper), with their shells, lightning, tracers and rings.
-- **Towers at level 4** since feature 8.
-- **Enemies:** a mix of all seven types (30% Grunt, 20% Runner, 24% Swarmling, 10% Brute, 10% Wisp, 5% Mender, 1% Warlord). That includes about 500 flyers, Mender heal pulses and Warlord splits.
+**Full game** (`npm run bench -- --full`): the reference bot plays all 50 waves of a normal game at 4× speed.
 
-Earlier runs with fewer types gave the same picture, within ±1 FPS.
+| Result | Outcome | Real time | Frames | Avg FPS | p95 frame | Frames over 33 ms | Worst frame | Sim CPU | Render CPU | Heap per wave | Heap trend |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| **PASS** | Won, 20/20 lives | 389 s | 23,253 | 59.8 | 17.6 ms | 0.12% | 216 ms | 0.12 ms | 0.40 ms | 5.2–6.0 MB | −0.002 MB/wave |
+
+- **Memory is flat over a whole game.** After each wave clears, the heap is somewhere between 5.2 and 6.0 MB, with no upward trend from wave 5 to wave 50 (the fitted slope is −0.002 MB per wave; the pass limit is ±0.05). Everything the game uses is allocated at startup, and restart reuses it.
+- **A normal game is light compared with the stress test:** at most 134 enemies, 10 projectiles and 268 particles at once, so it uses about a tenth of the stress test's CPU even at 4× speed (4 steps per frame).
+- **The single 216 ms frame** is one isolated stall in 6.5 minutes (99% of frames were under 17.7 ms), consistent with the machine rather than the game, since the game's own CPU time per frame stayed under half a millisecond.
+
+**Offline:** across all five runs the bench recorded **zero requests** leaving the machine and no page errors. The build is one HTML file, one 106 kB script (36 kB gzipped) and one stylesheet, with no fonts, images, audio or CDNs.
+
+**Conditions.** These runs were on battery (68% → 64%) with a load average of about 6–8 from other apps. Chrome's 30 FPS power cap only applies at low battery, and every run held 60 FPS, so it wasn't active. Most frames over 33 ms come from the interactive scenario, where the script drives the mouse; the near-empty control shows the same input harness costs nothing measurable on its own.
+
+**Background load matters.** An earlier run with the load average at 31 (another browser at 100% CPU plus Spotlight indexing) failed two stress scenarios, with 18% and 9% of frames over 33 ms. Its *simulation* time also doubled (2.8 ms vs 1.2 ms), which the game's code can't cause on its own, and an A/B run with the HUD on and off ruled out the HUD. Rerun on a quieter machine, every scenario passed. For the fairest numbers, run on mains power with other apps closed.
 
 What this shows:
 
-- **Every scenario holds the display's 60 Hz** with the full load: at least 5,000 enemies, 100 towers and 1,100 projectiles in every frame. That leaves a wide margin over both targets (45 FPS at p95, under 5% of frames over 33 ms).
-- **CPU use is about 4 ms of a 16.7 ms frame,** so there's room for the remaining towers, enemies and effects.
-- **Culling works:** zoomed in, less than half the enemies are drawn and render time about halves (3.1 → 1.7 ms), while the simulation cost stays the same.
-- **Input stays responsive under load.** Average input latency is 15.1 ms under stress against 17.2 ms in the control, so the difference is the harness, not the game.
-- **Memory is flat:** the heap moves by about 1 MB or less over each run, with no growth.
+- **Every scenario holds the display's 60 Hz** at p95 with the full load, a wide margin over both targets (45 FPS at p95, under 5% of frames over 33 ms).
+- **CPU use is about 5 ms of a 16.7 ms frame** under stress: about 1 ms of simulation and 4 ms of rendering.
+- **Culling works:** zoomed in, less than a third of the enemies are drawn and render time more than halves (3.8 → 1.7 ms), while the simulation cost stays the same.
+- **Input stays responsive under load.** Average input latency is 15.7 ms under stress against 14.2 ms in the control, about one frame either way.
+- **Memory is flat,** both over each 20 s stress run and over a whole 50-wave game.
 
-Raw results are in `bench/results/`. The earlier battery runs were dropped because Chrome was capping them at 30 FPS.
+Raw results are in `bench/results/`.

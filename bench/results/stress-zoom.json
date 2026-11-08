@@ -8,37 +8,37 @@
     2
   ],
   "stats": {
-    "frames": 1200,
+    "frames": 1201,
     "p50": 16.700000762939453,
     "p95": 17.600000381469727,
     "p99": 17.700000762939453,
-    "max": 17.799999237060547,
+    "max": 17.700000762939453,
     "fpsAtP95": 56.81818058668092,
-    "avgFps": 59.99999841499333,
+    "avgFps": 60.00109748274966,
     "slowPct": 0,
     "at45Pct": 100,
-    "simAvg": 1.087999998976787,
+    "simAvg": 1.0547876742162077,
     "simP95": 2,
-    "simMax": 3.5999999046325684,
-    "renderAvg": 1.7675833330551782,
-    "renderP95": 2.0999999046325684,
-    "renderMax": 3.700000047683716,
+    "simMax": 7.199999809265137,
+    "renderAvg": 1.680599501786085,
+    "renderP95": 2,
+    "renderMax": 8.5,
     "stepsAvg": 1,
     "inputAvg": 0,
     "inputMax": 0,
     "inputEvents": 0
   },
   "counts": {
-    "minEnemies": 5094,
-    "avgEnemies": 5145,
-    "minProjectiles": 1103,
+    "minEnemies": 5105,
+    "avgEnemies": 5146,
+    "minProjectiles": 1106,
     "avgProjectiles": 1131,
     "towers": 100,
-    "avgDrawn": 1673
+    "avgDrawn": 1542
   },
   "heapMB": {
-    "start": 6.1,
-    "end": 5.4,
+    "start": 5.8,
+    "end": 5.3,
     "max": 6.3
   },
   "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
@@ -50,5 +50,6 @@
     "cores": 8,
     "chrome": "157.0.8103.38"
   },
-  "errors": []
+  "errors": [],
+  "externalRequests": []
 }

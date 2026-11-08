@@ -165,6 +165,6 @@ Title ──play──▶ Playing ◀──resume── Paused
 | Placement, upgrade, sell, lives, gold, score, victory, game over | Sim tests and manual check |
 | Pause, restart, speed control | Manual check, plus the determinism test for speed |
 | Stress: 5,000 / 100 / 1,000 at p95 ≥ 45 FPS, < 5% of frames over 33 ms, still interactive | `npm run bench` results, recorded in the README |
-| Memory flat over a full run | Heap samples from `?bench=run`, recorded in the README |
+| Memory flat over a full run | Heap samples from `?bot&speed=4&bench=full` (`npm run bench -- --full`), recorded in the README |
 | Same behaviour on any refresh rate | Determinism test |
 | README covers architecture, rendering, bottlenecks, optimizations, measurement | README review |
