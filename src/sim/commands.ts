@@ -10,6 +10,12 @@ export const Cmd = {
   Place: 1,
   /** Start the next wave now (early calls pay a bonus). No arguments. */
   NextWave: 2,
+  /** Upgrade the tower on a tile. a = tile x, b = tile y. */
+  Upgrade: 3,
+  /** Sell the tower on a tile. a = tile x, b = tile y. */
+  Sell: 4,
+  /** Set a tower's targeting mode. a = tile x, b = tile y, c = TargetMode. */
+  SetTarget: 5,
 } as const
 export type CommandType = (typeof Cmd)[keyof typeof Cmd]
 

@@ -35,11 +35,30 @@ export class Camera {
    * the whole map, so resizing the window before touching the camera keeps it framed.
    */
   autoFit = true
+  /**
+   * Screen space covered by the HUD at the top and bottom, in CSS px. Fitting
+   * and clamping frame the map in the space between them.
+   */
+  insetTop = 0
+  insetBottom = 0
+
+  /** Sets the HUD insets and re-fits if the camera is still auto-fitting. */
+  setInsets(top: number, bottom: number): void {
+    this.insetTop = top
+    this.insetBottom = bottom
+    if (this.autoFit) this.fit()
+    else this.clamp()
+  }
+
+  /** World-space offset from the view centre to the centre of the uncovered area (y). */
+  private get insetShift(): number {
+    return (this.insetTop - this.insetBottom) / 2 / this.zoom
+  }
 
   /** Zoom at which the whole map fits the viewport (with padding). */
   get fitZoom(): number {
     const w = Math.max(1, this.viewW - FIT_PADDING * 2)
-    const h = Math.max(1, this.viewH - FIT_PADDING * 2)
+    const h = Math.max(1, this.viewH - this.insetTop - this.insetBottom - FIT_PADDING * 2)
     return Math.min(w / WORLD_W, h / WORLD_H)
   }
 
@@ -64,7 +83,7 @@ export class Camera {
     this.autoFit = true
     this.zoom = Math.min(Math.max(this.fitZoom, this.minZoom), ZOOM_MAX)
     this.x = WORLD_W / 2
-    this.y = WORLD_H / 2
+    this.y = WORLD_H / 2 - this.insetShift
     this.clamp()
   }
 
@@ -120,7 +139,10 @@ export class Camera {
    */
   clamp(): void {
     this.x = clampAxis(this.x, this.viewW / 2 / this.zoom, WORLD_W)
-    this.y = clampAxis(this.y, this.viewH / 2 / this.zoom, WORLD_H)
+    // Clamp the centre of the uncovered area, not the raw view centre.
+    const shift = this.insetShift
+    const half = Math.max(1, this.viewH - this.insetTop - this.insetBottom) / 2 / this.zoom
+    this.y = clampAxis(this.y + shift, half, WORLD_H) - shift
   }
 }
 

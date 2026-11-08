@@ -1,32 +1,32 @@
 {
   "mode": "normal",
   "seconds": 20,
-  "zoom": 1.559,
+  "zoom": 1.258,
   "viewport": [
     1440,
     900,
     2
   ],
   "stats": {
-    "frames": 1201,
+    "frames": 1200,
     "p50": 16.700000762939453,
     "p95": 17.600000381469727,
     "p99": 17.700000762939453,
-    "max": 17.700000762939453,
+    "max": 32.400001525878906,
     "fpsAtP95": 56.81818058668092,
-    "avgFps": 60.001697513665434,
+    "avgFps": 59.95473308043564,
     "slowPct": 0,
-    "at45Pct": 100,
-    "simAvg": 0.014987511053172675,
+    "at45Pct": 99.91666666666667,
+    "simAvg": 0.017083333134651185,
     "simP95": 0.10000002384185791,
-    "simMax": 1.100000023841858,
-    "renderAvg": 0.10099916712231283,
-    "renderP95": 0.20000004768371582,
-    "renderMax": 3.799999952316284,
-    "stepsAvg": 1,
-    "inputAvg": 17.199827293966717,
-    "inputMax": 99.80000305175781,
-    "inputEvents": 579
+    "simMax": 2.0999999046325684,
+    "renderAvg": 0.14174999992052714,
+    "renderP95": 0.30000001192092896,
+    "renderMax": 3.0999999046325684,
+    "stepsAvg": 1.0008333333333332,
+    "inputAvg": 14.743522257879677,
+    "inputMax": 63.79999923706055,
+    "inputEvents": 494
   },
   "counts": {
     "minEnemies": 0,
@@ -37,9 +37,9 @@
     "avgDrawn": 0
   },
   "heapMB": {
-    "start": 4.7,
-    "end": 5,
-    "max": 5.2
+    "start": 4.8,
+    "end": 5.1,
+    "max": 5.3
   },
   "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
   "scenario": "control-interactive",

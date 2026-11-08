@@ -1,4 +1,4 @@
-import { DT, ENEMIES, EnemyType, MAX_ENEMIES, SHELL_ARC, TILE, TOWERS, WORLD_H, WORLD_W } from '../config.ts'
+import { DT, ENEMIES, EnemyType, MAX_ENEMIES, SHELL_ARC, TILE, TOWERS, WORLD_H, WORLD_W, towerStats } from '../config.ts'
 import { BeamKind, RingKind } from '../sim/fx.ts'
 import { PlaceResult, type Game } from '../sim/game.ts'
 import type { Controls } from '../ui/controls.ts'
@@ -31,7 +31,7 @@ export class Renderer {
   private readonly portalGlow: HTMLCanvasElement
   private readonly baseGlow: HTMLCanvasElement
   private readonly hurtGlow: HTMLCanvasElement
-  private readonly sprites: Sprites
+  readonly sprites: Sprites
   private readonly portals: readonly (readonly [number, number])[]
   private readonly base: readonly [number, number]
   private readonly view: Rect = { x0: 0, y0: 0, x1: 0, y1: 0 }
@@ -48,7 +48,7 @@ export class Renderer {
   private camOy = 0
   /** Red flash on the base after a leak, fading from 1 to 0 in real time. */
   private baseFlash = 0
-  /** Enemies drawn last frame (for the debug readout). */
+  /** Enemies drawn last frame (for the perf overlay and benchmark). */
   drawnEnemies = 0
 
   constructor(canvas: HTMLCanvasElement, camera: Camera, game: Game, controls: Controls) {
@@ -140,6 +140,34 @@ export class Renderer {
       ctx.drawImage(img, f.sx, f.sy, f.sw, f.sh, -f.w / 2 - kick, -f.h / 2, f.w, f.h)
     }
     ctx.setTransform(s, 0, 0, s, this.camOx, this.camOy)
+    this.drawLevelPips(v)
+  }
+
+  /** Gold pips along the bottom of upgraded towers: one fill for all of them. */
+  private drawLevelPips(v: Rect): void {
+    const ctx = this.ctx
+    const t = this.game.towers
+    let any = false
+    ctx.beginPath()
+    for (let i = 0; i < t.count; i++) {
+      const lv = t.level[i]
+      if (lv < 2) continue
+      const x = t.x[i]
+      const y = t.y[i] + 12
+      if (x + TILE < v.x0 || x - TILE > v.x1 || y + TILE < v.y0 || y - TILE > v.y1) continue
+      for (let k = 0; k < lv; k++) {
+        const px = x + (k - (lv - 1) / 2) * 5
+        ctx.moveTo(px + 1.8, y)
+        ctx.arc(px, y, 1.8, 0, TAU)
+      }
+      any = true
+    }
+    if (!any) return
+    ctx.fillStyle = '#ffd864'
+    ctx.strokeStyle = 'rgba(40, 28, 0, 0.8)'
+    ctx.lineWidth = 1
+    ctx.stroke()
+    ctx.fill()
   }
 
   // ------------------------------------------------------------ enemies
@@ -438,7 +466,7 @@ export class Renderer {
     const i = this.controls.selectedTower()
     if (i < 0) return
     const t = this.game.towers
-    this.drawRange(t.x[i], t.y[i], TOWERS[t.type[i]].range, true)
+    this.drawRange(t.x[i], t.y[i], towerStats(t.type[i], t.level[i]).range, true)
     const ctx = this.ctx
     ctx.strokeStyle = '#ffe28a'
     ctx.lineWidth = 2

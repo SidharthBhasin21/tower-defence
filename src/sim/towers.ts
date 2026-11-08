@@ -1,5 +1,6 @@
 import {
   AIM_TOLERANCE,
+  towerStats,
   DT,
   ENEMIES,
   MAP_H,
@@ -7,7 +8,6 @@ import {
   MAX_ENEMY_RADIUS,
   RETARGET_STEPS,
   TILE,
-  TOWERS,
   TowerType,
   type TowerDef,
 } from '../config.ts'
@@ -17,9 +17,19 @@ import type { Game } from './game.ts'
 
 const TAU = Math.PI * 2
 
+/** Which enemy in range a tower picks (DOMAIN.md §2.3). */
 export const TargetMode = {
+  /** Closest to the base. */
   First: 0,
+  /** Furthest from the base. */
+  Last: 1,
+  /** Most current health. */
+  Strongest: 2,
+  /** Nearest to the tower. */
+  Closest: 3,
 } as const
+export const TARGET_MODE_NAMES = ['First', 'Last', 'Strongest', 'Closest'] as const
+export const TARGET_MODE_COUNT = 4
 
 /**
  * Tower storage, dense structure of arrays (ARCHITECTURE.md §4.1).
@@ -100,6 +110,29 @@ export class TowerStore {
     return i
   }
 
+  /** Removes tower `i` by moving the last tower into its place. */
+  remove(i: number): void {
+    this.byTile[this.ty[i] * MAP_W + this.tx[i]] = -1
+    const j = --this.count
+    if (i === j) return
+    this.type[i] = this.type[j]
+    this.level[i] = this.level[j]
+    this.tx[i] = this.tx[j]
+    this.ty[i] = this.ty[j]
+    this.x[i] = this.x[j]
+    this.y[i] = this.y[j]
+    this.cooldown[i] = this.cooldown[j]
+    this.angle[i] = this.angle[j]
+    this.prevAngle[i] = this.prevAngle[j]
+    this.recoil[i] = this.recoil[j]
+    this.targetMode[i] = this.targetMode[j]
+    this.targetSlot[i] = this.targetSlot[j]
+    this.targetGen[i] = this.targetGen[j]
+    this.retarget[i] = this.retarget[j]
+    this.invested[i] = this.invested[j]
+    this.byTile[this.ty[i] * MAP_W + this.tx[i]] = i
+  }
+
   reset(): void {
     this.count = 0
     this.byTile.fill(-1)
@@ -111,7 +144,7 @@ export function stepTowers(g: Game): void {
   const t = g.towers
   const e = g.enemies
   for (let i = 0; i < t.count; i++) {
-    const def = TOWERS[t.type[i]]
+    const def = towerStats(t.type[i], t.level[i])
     t.prevAngle[i] = t.angle[i]
     if (t.cooldown[i] > 0) t.cooldown[i] -= DT
     if (t.recoil[i] > 0) t.recoil[i] = Math.max(0, t.recoil[i] - DT * 8)
@@ -120,7 +153,7 @@ export function stepTowers(g: Game): void {
     let s = t.targetSlot[i]
     const valid = e.isAlive(s, t.targetGen[i]) && inRange(g, i, s, def.range)
     if (!valid || --t.retarget[i] <= 0) {
-      s = acquire(g, i, def.range, def.hitsAir)
+      s = acquire(g, i, def.range, def.hitsAir, t.targetMode[i])
       t.targetSlot[i] = s
       t.targetGen[i] = s >= 0 ? e.generation[s] : 0
       t.retarget[i] = RETARGET_STEPS
@@ -239,21 +272,31 @@ function inRange(g: Game, i: number, s: number, range: number): boolean {
   return dx * dx + dy * dy <= r * r
 }
 
-/** Picks a target with the grid. "First" = the enemy closest to the base. */
-function acquire(g: Game, i: number, range: number, hitsAir: boolean): number {
+/**
+ * Picks a target with the grid, by the tower's mode. Every mode becomes
+ * "lowest score wins", so one loop serves all four.
+ */
+function acquire(g: Game, i: number, range: number, hitsAir: boolean, mode: number): number {
   const e = g.enemies
   const buf = g.queryBuf
-  const n = g.grid.query(e, g.towers.x[i], g.towers.y[i], range + MAX_ENEMY_RADIUS, buf)
+  const tx = g.towers.x[i]
+  const ty = g.towers.y[i]
+  const n = g.grid.query(e, tx, ty, range + MAX_ENEMY_RADIUS, buf)
   let best = -1
-  let bestRemaining = Infinity
+  let bestScore = Infinity
   for (let k = 0; k < n; k++) {
     const s = buf[k]
+    if (!e.alive[s]) continue
     const def = ENEMIES[e.type[s]]
     if (def.air && !hitsAir) continue
     if (!inRange(g, i, s, range)) continue
-    const remaining = g.paths[e.pathId[s]].endDist - e.dist[s]
-    if (remaining < bestRemaining) {
-      bestRemaining = remaining
+    let score: number
+    if (mode === TargetMode.Last) score = e.dist[s] - g.paths[e.pathId[s]].endDist // most path left
+    else if (mode === TargetMode.Strongest) score = -e.hp[s]
+    else if (mode === TargetMode.Closest) score = (e.x[s] - tx) ** 2 + (e.y[s] - ty) ** 2
+    else score = g.paths[e.pathId[s]].endDist - e.dist[s] // First: least path left
+    if (score < bestScore) {
+      bestScore = score
       best = s
     }
   }

@@ -7,11 +7,12 @@ import { Camera } from './render/camera.ts'
 import { Renderer } from './render/renderer.ts'
 import { Cmd } from './sim/commands.ts'
 import { Ev } from './sim/events.ts'
-import { Game, Phase, PlaceResult } from './sim/game.ts'
+import { Game, Phase, PlaceResult, UpgradeResult } from './sim/game.ts'
 import { StressController } from './sim/stress.ts'
 import { Controls } from './ui/controls.ts'
-import { DebugReadout } from './ui/debug.ts'
+import { Hud } from './ui/hud.ts'
 import { CameraInput } from './ui/input.ts'
+import { TowerPanel } from './ui/panel.ts'
 import { Screens } from './ui/screens.ts'
 import { loadBest, loadSettings, saveBest, saveSettings } from './ui/storage.ts'
 
@@ -36,15 +37,28 @@ const controls = new Controls(game, camera)
 const renderer = new Renderer(canvas, camera, game, controls)
 const input = new CameraInput(canvas, camera, controls)
 let stress = new StressController()
-const readout = new DebugReadout(ui)
+const panel = new TowerPanel(ui, game, controls)
 const recorder = new FrameRecorder()
 recorder.watchInput(window)
 const overlay = new PerfOverlay(ui, recorder, game, stressMode)
 
 if (stressMode) stress.setup(game)
 
+const hud = new Hud(ui, renderer.sprites, {
+  nextWave: () => game.commands.push(Cmd.NextWave),
+  togglePause: () => togglePause(),
+  cycleSpeed: () => setSpeed((speedIndex + 1) % GAME_SPEEDS.length),
+  toggleMute: () => toggleMute(),
+  restart: () => askRestart(),
+  build: (type) => controls.startBuild(type),
+})
+const hudState = { speed: 1, paused: false, muted: false, building: -1 }
+
 function resize(): void {
   renderer.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1)
+  // Fit the map into the area the HUD bars leave uncovered.
+  const [top, bottom] = hud.insets()
+  camera.setInsets(top, bottom)
 }
 window.addEventListener('resize', resize)
 resize()
@@ -61,13 +75,18 @@ let speedIndex = Math.min(Math.max(settings.speedIndex, 0), GAME_SPEEDS.length -
 /** Panels that stop the simulation while open (the game-over screens stop it via the sim phase). */
 function syncPause(): void {
   const s = screens.current
-  loop.stepper.paused = s === 'title' || s === 'pause' || s === 'confirm'
+  loop.stepper.paused = s === 'title' || s === 'help' || s === 'pause' || s === 'confirm'
 }
 
 function setSpeed(i: number): void {
   speedIndex = i
   loop.stepper.speed = GAME_SPEEDS[i]
   settings.speedIndex = i
+  saveSettings(settings)
+}
+
+function toggleMute(): void {
+  settings.muted = !settings.muted
   saveSettings(settings)
 }
 
@@ -98,17 +117,22 @@ const screens = new Screens(ui, {
     screens.hide()
     syncPause()
   },
-  restart: () => {
-    if (inProgress()) screens.show('confirm')
-    else restartNow()
-    syncPause()
-  },
+  restart: () => askRestart(),
   restartNow,
   cancelConfirm: () => {
     screens.hide()
     syncPause()
   },
+  best: () => loadBest(),
 })
+
+/** Restart, asking first when a game is in progress. */
+function askRestart(): void {
+  if (screens.current === 'title' || screens.current === 'help') return
+  if (inProgress()) screens.show('confirm')
+  else restartNow()
+  syncPause()
+}
 
 function togglePause(): void {
   if (screens.current === 'pause') screens.hide()
@@ -134,7 +158,8 @@ window.addEventListener('keydown', (e) => {
       togglePause()
       break
     case 'Escape':
-      if (s === 'pause' || s === 'confirm') {
+      if (s === 'help') screens.back()
+      else if (s === 'pause' || s === 'confirm') {
         screens.hide()
         syncPause()
       }
@@ -144,11 +169,10 @@ window.addEventListener('keydown', (e) => {
       break
     case 'KeyR':
       if (s === 'confirm') restartNow()
-      else if (s !== 'title') {
-        if (inProgress()) screens.show('confirm')
-        else restartNow()
-        syncPause()
-      }
+      else askRestart()
+      break
+    case 'KeyM':
+      toggleMute()
       break
   }
 })
@@ -173,16 +197,21 @@ function onEvent(type: number, a: number, b: number): void {
   if (type === Ev.Leak) {
     if (!stressMode) renderer.flashBase()
   } else if (type === Ev.PlaceFailed) {
-    if (a === PlaceResult.NoGold) readout.flash('Not enough gold', frameNow)
-    else if (a === PlaceResult.Occupied) readout.flash('There is already a tower there', frameNow)
-    else if (a === PlaceResult.Blocked || a === PlaceResult.OutOfBounds) readout.flash("Can't build there", frameNow)
-    else if (a === PlaceResult.TooManyTowers) readout.flash('Tower limit reached', frameNow)
+    if (a === PlaceResult.NoGold) hud.toast('Not enough gold', 'warn', frameNow)
+    else if (a === PlaceResult.Occupied) hud.toast('There is already a tower there', 'warn', frameNow)
+    else if (a === PlaceResult.Blocked || a === PlaceResult.OutOfBounds) hud.toast("Can't build there", 'warn', frameNow)
+    else if (a === PlaceResult.TooManyTowers) hud.toast('Tower limit reached', 'warn', frameNow)
   } else if (type === Ev.WaveStart) {
-    readout.flash(b > 0 ? `Wave ${a} called early: +${b} gold` : `Wave ${a}`, frameNow, true)
+    hud.toast(b > 0 ? `Wave ${a} called early: +${b} gold` : `Wave ${a}`, 'info', frameNow)
   } else if (type === Ev.WaveCleared) {
-    readout.flash(`Wave ${a} cleared: +${b} gold`, frameNow, true)
+    hud.toast(`Wave ${a} cleared: +${b} gold`, 'info', frameNow)
+  } else if (type === Ev.UpgradeFailed) {
+    if (a === UpgradeResult.NoGold) hud.toast('Not enough gold to upgrade', 'warn', frameNow)
+    else if (a === UpgradeResult.MaxLevel) hud.toast('Already at max level', 'warn', frameNow)
+  } else if (type === Ev.Sold) {
+    hud.toast(`Sold for ${b} gold`, 'info', frameNow)
   } else if (type === Ev.BossSpawn) {
-    readout.flash(`Wave ${a}: a Warlord approaches!`, frameNow)
+    hud.toast(`Wave ${a}: a Warlord approaches!`, 'boss', frameNow)
   } else if (type === Ev.Victory) {
     endGame(true)
   } else if (type === Ev.Defeat) {
@@ -275,10 +304,18 @@ const loop = new GameLoop({
   },
   render: (alpha, realDt, now) => {
     frameNow = now
+    // While paused, apply queued commands without stepping, so building,
+    // upgrading and selling work in a paused game. No game time passes.
+    if (loop.stepper.paused && game.phase === Phase.Playing) game.applyCommands()
     game.events.drain(onEvent)
     input.update(realDt)
     renderer.render(alpha, realDt)
-    readout.update(game, renderer.drawnEnemies, controls.buildType, GAME_SPEEDS[speedIndex], loop.stepper.paused, now)
+    hudState.speed = GAME_SPEEDS[speedIndex]
+    hudState.paused = screens.current === 'pause'
+    hudState.muted = settings.muted
+    hudState.building = controls.buildType
+    hud.update(game, hudState, now)
+    panel.update()
     overlay.drawn = renderer.drawnEnemies
     overlay.update(now)
   },
@@ -296,4 +333,4 @@ loop.start()
 if (benchSeconds > 0) Object.assign(window, { __bench: bench })
 
 // Dev builds only: expose state for scripts/shot.mjs and console debugging.
-if (import.meta.env.DEV) Object.assign(window, { __td: { game, camera, renderer, controls, screens, loop, recorder } })
+if (import.meta.env.DEV) Object.assign(window, { __td: { game, camera, renderer, controls, screens, hud, loop, recorder } })

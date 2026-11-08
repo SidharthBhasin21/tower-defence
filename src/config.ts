@@ -174,6 +174,52 @@ export const TOWERS: readonly TowerDef[] = [
   },
 ]
 
+// ---- Tower levels (DOMAIN.md §2.3) ----
+
+export const MAX_LEVEL = 4
+/** Gold back when selling, as a share of everything spent on the tower (tuned). */
+export const SELL_REFUND = 0.7
+/** Cost of upgrading to level 2, 3 and 4, as a multiple of the build cost: each costs more than the last (tuned). */
+export const UPGRADE_COST = [0.75, 1.15, 1.7] as const
+
+/** Per-level multipliers, index 0 = level 1 (tuned). */
+const LEVEL_DAMAGE = [1, 1.5, 2.15, 3]
+const LEVEL_RANGE = [1, 1.08, 1.16, 1.25]
+const LEVEL_RATE = [1, 1.1, 1.22, 1.35]
+const LEVEL_SPLASH = [1, 1.1, 1.2, 1.3]
+/** Frost slows harder and longer; Arc chains further at levels 3 and 4. */
+const LEVEL_SLOW = [0.5, 0.44, 0.38, 0.32]
+const LEVEL_SLOW_TIME = [1, 1.1, 1.2, 1.3]
+const LEVEL_CHAINS = [0, 0, 1, 2]
+
+function levelStats(def: TowerDef, k: number): TowerDef {
+  return {
+    ...def,
+    damage: def.damage * LEVEL_DAMAGE[k],
+    range: Math.round(def.range * LEVEL_RANGE[k]),
+    fireRate: def.fireRate * LEVEL_RATE[k],
+    splash: def.splash * LEVEL_SPLASH[k],
+    slow: def.slowTime > 0 ? LEVEL_SLOW[k] : 1,
+    slowTime: def.slowTime * LEVEL_SLOW_TIME[k],
+    chains: def.chains > 0 ? def.chains + LEVEL_CHAINS[k] : 0,
+  }
+}
+
+/** Stats for every type at every level, built once: TOWER_STATS[type][level - 1]. */
+export const TOWER_STATS: readonly (readonly TowerDef[])[] = TOWERS.map((def) =>
+  Array.from({ length: MAX_LEVEL }, (_, k) => levelStats(def, k)),
+)
+
+/** A tower's stats at `level` (1–4). No allocation. */
+export function towerStats(type: number, level: number): TowerDef {
+  return TOWER_STATS[type][level - 1]
+}
+
+/** Gold to go from `level` to `level + 1`, or 0 at max level. */
+export function upgradeCost(type: number, level: number): number {
+  return level >= MAX_LEVEL ? 0 : Math.round(TOWERS[type].cost * UPGRADE_COST[level - 1])
+}
+
 // ---- Projectiles ----
 
 export const MAX_PROJECTILES = 4096

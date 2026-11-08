@@ -1,4 +1,4 @@
-import { ENEMIES, EnemyType, TILE, TowerType } from '../config.ts'
+import { ENEMIES, EnemyType, MAX_LEVEL, TILE, TowerType } from '../config.ts'
 import { Rng } from '../rng.ts'
 import type { Game } from './game.ts'
 
@@ -7,8 +7,8 @@ export const STRESS_ENEMIES = 5000
 export const STRESS_TOWERS = 100
 export const STRESS_PROJECTILES = 1000
 
-/** Stress enemies are tough so most survive, but towers still kill some. */
-const STRESS_HP = 600
+/** Stress enemies are tough so most survive max-level towers, but towers still kill some. */
+const STRESS_HP = 1800
 /** Towers fire this much faster so real shots make up most of the projectiles. */
 const FIRE_RATE_MUL = 6
 /**
@@ -52,7 +52,10 @@ export class StressController {
   /** Builds the towers on the buildable tiles closest to a path. */
   setup(g: Game): void {
     g.fireRateMul = FIRE_RATE_MUL
-    towerSites(g, STRESS_TOWERS).forEach(([tx, ty], k) => g.towers.add(TOWER_MIX[k % TOWER_MIX.length], tx, ty, 0))
+    towerSites(g, STRESS_TOWERS).forEach(([tx, ty], k) => {
+      const i = g.towers.add(TOWER_MIX[k % TOWER_MIX.length], tx, ty, 0)
+      g.towers.level[i] = MAX_LEVEL // the heaviest case: biggest ranges, most chain jumps
+    })
   }
 
   /** Call before each `game.step()`. */

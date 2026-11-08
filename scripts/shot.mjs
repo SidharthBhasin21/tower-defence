@@ -3,7 +3,7 @@
 // state and saves a screenshot.
 //
 //   node scripts/shot.mjs [url] [--wait ms] [--keys Space,KeyF] [--build 7,5;8,5]
-//                         [--hover tx,ty] [--gold n] [--out file.png] [--headed]
+//                         [--hover tx,ty] [--gold n] [--size 1440x900] [--out file.png] [--headed]
 //
 // --build presses a tower key and Shift-clicks each tile (tile coords), like a
 // player. Prefix a tile with "k@" to pick tower k (default 1): "2@7,6;3@5,7".
@@ -36,7 +36,8 @@ const tileToScreen = (tx, ty) =>
   }, [tx, ty])
 
 const browser = await chromium.launch({ channel: 'chrome', headless: !args.includes('--headed') })
-const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
+const [vw, vh] = opt('--size', '1440x900').split('x').map(Number)
+const page = await browser.newPage({ viewport: { width: vw, height: vh }, deviceScaleFactor: 2 })
 const errors = []
 page.on('pageerror', (e) => errors.push(String(e)))
 page.on('console', (m) => m.type() === 'error' && errors.push(m.text()))

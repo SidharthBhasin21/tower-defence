@@ -28,6 +28,12 @@ export const Ev = {
   BossSpawn: 10,
   /** A Warlord died and split. a = Runners released. */
   BossSplit: 11,
+  /** A tower was upgraded. a = tower type, b = new level, c = gold spent. */
+  Upgraded: 12,
+  /** An upgrade was refused. a = UpgradeResult reason. */
+  UpgradeFailed: 13,
+  /** A tower was sold. a = tower type, b = gold refunded. */
+  Sold: 14,
 } as const
 export type EventType = (typeof Ev)[keyof typeof Ev]
 

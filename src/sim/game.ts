@@ -31,6 +31,10 @@ import {
   MENDER_RADIUS,
   WARLORD_SPLIT,
   WARLORD_SPLIT_SPACING,
+  MAX_LEVEL,
+  SELL_REFUND,
+  towerStats,
+  upgradeCost,
 } from '../config.ts'
 import { Rng } from '../rng.ts'
 import { Cmd, CommandQueue } from './commands.ts'
@@ -41,7 +45,7 @@ import { SpatialGrid } from './grid.ts'
 import { GameMap } from './map.ts'
 import { SampledPath } from './path.ts'
 import { ProjectilePool, stepProjectiles } from './projectiles.ts'
-import { TowerStore, stepTowers } from './towers.ts'
+import { TARGET_MODE_COUNT, TowerStore, stepTowers } from './towers.ts'
 import { WAVES, WaveScheduler } from './waves.ts'
 
 /** Where the run stands (DOMAIN.md §2.6). Title and Paused are client states, not sim ones. */
@@ -65,6 +69,15 @@ export const PlaceResult = {
   TooManyTowers: 5,
 } as const
 export type PlaceResultId = (typeof PlaceResult)[keyof typeof PlaceResult]
+
+/** Why an upgrade was or wasn't allowed. */
+export const UpgradeResult = {
+  Ok: 0,
+  NoTower: 1,
+  MaxLevel: 2,
+  NoGold: 3,
+} as const
+export type UpgradeResultId = (typeof UpgradeResult)[keyof typeof UpgradeResult]
 
 /**
  * Root of the simulation. Owns all game state and advances it one fixed step
@@ -185,6 +198,9 @@ export class Game {
   private readonly onCommand = (type: number, a: number, b: number, c: number): void => {
     if (type === Cmd.Place) this.placeTower(a, b, c)
     else if (type === Cmd.NextWave) this.callNextWave()
+    else if (type === Cmd.Upgrade) this.upgradeTower(a, b)
+    else if (type === Cmd.Sell) this.sellTower(a, b)
+    else if (type === Cmd.SetTarget) this.setTargetMode(a, b, c)
   }
 
   // --------------------------------------------------------------- waves
@@ -354,6 +370,58 @@ export class Game {
     return i
   }
 
+  /** Checks whether the tower on a tile could be upgraded right now. */
+  canUpgrade(tx: number, ty: number): UpgradeResultId {
+    const i = this.towers.at(tx, ty)
+    if (i < 0) return UpgradeResult.NoTower
+    if (this.towers.level[i] >= MAX_LEVEL) return UpgradeResult.MaxLevel
+    if (this.gold < upgradeCost(this.towers.type[i], this.towers.level[i])) return UpgradeResult.NoGold
+    return UpgradeResult.Ok
+  }
+
+  /** Raises the tower on a tile one level, if allowed. Returns whether it did. */
+  upgradeTower(tx: number, ty: number): boolean {
+    const why = this.canUpgrade(tx, ty)
+    if (why !== UpgradeResult.Ok) {
+      this.events.push(Ev.UpgradeFailed, why)
+      return false
+    }
+    const t = this.towers
+    const i = t.at(tx, ty)
+    const cost = upgradeCost(t.type[i], t.level[i])
+    this.gold -= cost
+    t.invested[i] += cost
+    t.level[i]++
+    t.retarget[i] = 0 // range may have grown
+    this.events.push(Ev.Upgraded, t.type[i], t.level[i], cost)
+    return true
+  }
+
+  /** Gold the tower on a tile would refund if sold now (0 if none). */
+  sellValue(tx: number, ty: number): number {
+    const i = this.towers.at(tx, ty)
+    return i < 0 ? 0 : Math.floor(this.towers.invested[i] * SELL_REFUND)
+  }
+
+  /** Sells the tower on a tile for SELL_REFUND of what was spent on it. Returns the refund, or -1. */
+  sellTower(tx: number, ty: number): number {
+    const i = this.towers.at(tx, ty)
+    if (i < 0) return -1
+    const refund = this.sellValue(tx, ty)
+    const type = this.towers.type[i]
+    this.gold += refund
+    this.towers.remove(i)
+    this.events.push(Ev.Sold, type, refund)
+    return refund
+  }
+
+  setTargetMode(tx: number, ty: number, mode: number): void {
+    const i = this.towers.at(tx, ty)
+    if (i < 0 || mode < 0 || mode >= TARGET_MODE_COUNT) return
+    this.towers.targetMode[i] = mode
+    this.towers.retarget[i] = 0 // re-pick on the next step
+  }
+
   /**
    * Launches a projectile from tower `i` at enemy slot `s`: a homing shot, or
    * for a splash tower a shell aimed where the enemy will be when it lands.
@@ -361,7 +429,7 @@ export class Game {
    */
   fireProjectile(i: number, s: number, type = this.towers.type[i]): void {
     const t = this.towers
-    const def = TOWERS[type]
+    const def = towerStats(type, type === t.type[i] ? t.level[i] : 1)
     const p = this.projectiles
     const k = p.alloc()
     if (k < 0) return

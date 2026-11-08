@@ -94,9 +94,9 @@ src/
     background.ts       Pre-renders the static map to one offscreen canvas
     camera.ts           Pan, zoom, world↔screen conversion, view rectangle
   ui/
-    debug.ts            TEMPORARY (features 2–8): lives and enemy readout, replaced by the HUD
-    hud.ts              DOM HUD; writes only values that changed
-    screens.ts          Title, pause, restart confirmation, victory, game-over screens
+    hud.ts              DOM HUD: top bar, next-wave card, controls, build bar, toasts; writes only values that changed
+    panel.ts            Selected-tower panel: stats and next-level gains, targeting mode, upgrade and sell
+    screens.ts          Title (with best score), how to play, pause, restart confirmation, victory, game-over screens
     storage.ts          localStorage wrapper: best score and settings, all in try/catch
     input.ts            Camera pan and zoom; turns short presses into click/cancel/hover hooks
     controls.ts         Build mode, hover tile and selection; queues commands
@@ -106,13 +106,13 @@ src/
     recorder.ts         Frame-time ring buffer, percentiles, heap samples
     overlay.ts          On-screen perf panel (toggle with `` ` ``)
 tests/                  Vitest specs
-scripts/shot.mjs        Opens the dev server in real Chrome, builds towers (--build "k@tx,ty"), sets gold (--gold), prints game state, saves a screenshot
+scripts/shot.mjs        Opens the dev server in real Chrome, builds towers (--build "k@tx,ty"), sets gold (--gold), window size (--size WxH), prints game state, saves a screenshot
 scripts/bench.mjs       Benchmark runner (playwright-core and system Chrome)
 bench/results/          Benchmark output (JSON)
 README.md               Architecture, rendering, bottlenecks, optimizations, measurement
 ```
 
-**Dev-only hook:** in dev builds `main.ts` puts `{ game, camera, renderer, controls, screens, loop, recorder }` on `window.__td` for `scripts/shot.mjs` and console debugging. Production builds leave it out.
+**Dev-only hook:** in dev builds `main.ts` puts `{ game, camera, renderer, controls, screens, hud, loop, recorder }` on `window.__td` for `scripts/shot.mjs` and console debugging. Production builds leave it out.
 
 **Dependency direction:** `sim/` imports only `config.ts` and `rng.ts`. `render/`, `ui/`, `audio/` and `perf/` read the sim's state but never change it, except that input sends commands. Nothing in `sim/` imports from those folders.
 
@@ -127,7 +127,7 @@ README.md               Architecture, rendering, bottlenecks, optimizations, mea
   - The real elapsed time is clamped to 100 ms, and a frame runs at most `MAX_STEPS_PER_FRAME`. That prevents a slowdown from feeding on itself after the tab was hidden or the machine stalled.
 - **Interpolation.** Moving entities keep their previous position. The renderer blends between the previous and current position using `alpha = accumulator / DT`, so motion is smooth at 60, 120 or 144 Hz.
 - **Refresh-rate independence.** Gameplay depends only on the number of steps, never on frame time. The same seed and the same commands give the same result on any display, and a test checks this.
-- **Pause** stops adding to the accumulator. Rendering and input keep running, so the camera still moves and panels still open while paused.
+- **Pause** stops adding to the accumulator. Rendering and input keep running, so the camera still moves and panels still open while paused. Queued commands (build, upgrade, sell, targeting) are applied once per frame while paused, without stepping, so towers can be managed in a paused game.
 - **Input.** Pointer and keyboard events push commands such as place, upgrade, sell, set target mode and next wave into a queue. The queue is drained at the start of the next step. Purely visual input (hover, camera) applies immediately.
 
 ---
@@ -278,6 +278,9 @@ Any LOD added must be recorded in the README, with the measurement that justifie
   - The selected-tower panel shows stats, upgrade and sell buttons with their prices, and the targeting mode.
   - The speed, pause, mute and restart buttons also live here.
   - `hud.ts` compares each value with its last shown value and writes only the ones that changed, using `textContent` and class toggles.
+  - Layout: stat chips top left, the next-wave card (enemy icons and counts, countdown, **Send now +Ng**) top centre, pause/speed/mute/restart top right, the build bar bottom centre, the tower panel bottom left, the perf overlay bottom right. Toasts (a fixed set of 4 reused slots) appear under the top bar.
+  - Tower and enemy icons are copied from the sprite atlas into small canvases once, at startup.
+  - **Camera insets:** the camera knows how many pixels the HUD bars cover at the top and bottom (`camera.setInsets`, measured from the DOM on resize). Fit and pan limits use the uncovered area, so the map is never hidden under the bars.
 - **Screens:** title, how to play, pause, victory, game over (final score, stats, best score) and restart confirmation.
 - **Controls:**
 
@@ -315,7 +318,7 @@ Any LOD added must be recorded in the README, with the measurement that justifie
 
 ### 7.2 Stress scenario (`?stress`)
 
-- **Towers:** 100 towers in a repeating mix of all five types (50 Bolt, 20 Cannon, 10 each of Frost, Arc and Sniper), placed on the buildable tiles nearest a ground path. They'll be max level once upgrades exist (feature 8).
+- **Towers:** 100 towers in a repeating mix of all five types (50 Bolt, 20 Cannon, 10 each of Frost, Arc and Sniper), placed on the buildable tiles nearest a ground path, all at level 4. Stress enemies have 1,800 health so most survive them.
 - **Enemies:** the controller keeps 5,000 alive, a mix of all seven types. Flyers use the air route. Warlord kills release their Runners as usual. It tops the count up to 5,150 each step, because splash and chains can kill dozens within one step. Leaked enemies are replaced the same way.
 - **Projectiles:** the controller keeps at least 1,000 in flight. It uses a fire-rate multiplier (×6) on every tower and adds extra Bolt shots, from random towers at random enemies, when the count drops below 1,150.
 - **Lives:** unlimited.

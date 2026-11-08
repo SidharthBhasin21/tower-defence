@@ -1,6 +1,7 @@
 import { TILE, TOWERS } from '../config.ts'
 import type { Camera, Vec } from '../render/camera.ts'
 import { Cmd } from '../sim/commands.ts'
+import { TARGET_MODE_COUNT } from '../sim/towers.ts'
 import type { Game } from '../sim/game.ts'
 import type { PointerHooks } from './input.ts'
 
@@ -12,6 +13,7 @@ import type { PointerHooks } from './input.ts'
  * - `1`: build a Bolt (toggle). Click a tile to build; Shift+click keeps building.
  * - Click a tower to select it; click empty ground to deselect.
  * - Right-click or `Esc`: leave build mode, or deselect.
+ * - With a tower selected: `U` upgrade, `X` sell, `T` cycle targeting mode.
  */
 export class Controls implements PointerHooks {
   /** Tower type being placed, or -1 when not building. */
@@ -83,6 +85,16 @@ export class Controls implements PointerHooks {
     if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return
     if (e.code === 'Escape') {
       this.cancel()
+      return
+    }
+    const i = this.selectedTower()
+    if (i >= 0 && (e.code === 'KeyU' || e.code === 'KeyX' || e.code === 'KeyT')) {
+      const t = this.game.towers
+      const tx = t.tx[i]
+      const ty = t.ty[i]
+      if (e.code === 'KeyU') this.game.commands.push(Cmd.Upgrade, tx, ty)
+      else if (e.code === 'KeyX') this.game.commands.push(Cmd.Sell, tx, ty)
+      else this.game.commands.push(Cmd.SetTarget, tx, ty, (t.targetMode[i] + 1) % TARGET_MODE_COUNT)
       return
     }
     for (let t = 0; t < TOWERS.length; t++) {

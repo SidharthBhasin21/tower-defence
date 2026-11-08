@@ -2,14 +2,16 @@
 
 A single-player tower defense game for desktop browsers. It runs entirely offline, with no server and no external assets. You defend a base against 50 waves by placing, upgrading and selling towers that fire automatically.
 
-> **Status:** in development, being built feature by feature. Done so far: **feature 7 (all seven enemies)**. The game is playable from start to finish:
+> **Status:** in development, being built feature by feature. Done so far: **feature 9 (HUD and screens)**. The game is playable from start to finish:
 > - Five towers: Bolt, Cannon, Frost, Arc and Sniper, each attacking in its own way.
 > - Seven enemies: Grunt, Runner, Swarmling, Brute (armored), Wisp (flies), Mender (heals) and the Warlord boss (splits into Runners).
+> - Towers upgrade to level 4 and sell for 70% of what was spent on them. Each tower has a targeting mode (First, Last, Strongest or Closest), all set from a tower panel.
 > - 50 waves with a countdown between them, plus a bonus for calling the next wave early.
 > - Victory and game-over screens, with the best score kept on this device.
 > - Pause, three game speeds, and restart.
+> - A HUD (lives, gold, wave, score, enemies left, next-wave preview with a **Send now** button, pause/speed/sound/restart buttons), a build bar of tower cards, toasts, and a **How to play** screen.
 >
-> A temporary readout stands in for the HUD. Upgrades, selling and targeting modes come next (feature 8), and balance tuning comes later (feature 11).
+> Sound (the mute button is already wired) and visual polish come in feature 10; balance tuning in feature 11.
 
 ### Controls so far
 
@@ -18,14 +20,16 @@ A single-player tower defense game for desktop browsers. It runs entirely offlin
 | Drag (any mouse button) or `WASD` / arrow keys | Pan |
 | Mouse wheel, trackpad pinch, `+` / `-` | Zoom |
 | `Home` | Fit the whole map |
-| `1`–`5` | Build a Bolt (50), Cannon (90), Frost (70), Arc (110) or Sniper (140); click a tile to place it |
+| `1`–`5`, or click a card in the build bar | Build a Bolt (50), Cannon (90), Frost (70), Arc (110) or Sniper (140); click a tile to place it |
 | Shift + click | Place and keep building |
-| Click a tower | Select it and show its range |
+| Click a tower | Select it: shows its range and the tower panel |
+| `U` / `X` / `T` | With a tower selected: upgrade / sell / cycle targeting mode (or use the panel's buttons) |
 | Right-click / `Esc` | Stop building, or deselect |
 | `Space` | Start the next wave (early during the countdown pays bonus gold) |
 | `P` | Pause or resume |
 | `F` | Cycle game speed: 1×, 2×, 4× (remembered) |
 | `R` | Restart (asks first while a game is in progress) |
+| `M` | Mute or unmute (remembered; sound arrives in feature 10) |
 | `` ` `` (backtick) | Show or hide the performance overlay |
 
 Add `?play` to the URL to skip the title screen. Open `/?stress` (or use the title screen's **Stress test** button) for the stress scenario: 5,000 enemies, 100 towers and 1,000+ projectiles at once. The game stays fully playable there.
@@ -134,6 +138,15 @@ It builds towers on the listed tiles with real mouse clicks (`k@tx,ty` picks tow
   - **Arc:** no turret. Instant lightning that jumps up to 4 times to the nearest enemy not yet struck within 64 px, keeping 80% of the damage each jump. Armor counts half. Ground only.
   - **Sniper:** slow-turning rifle with 270 px range. Instant 130-damage hits that ignore armor; hits air.
   - All targeting and splash use the same spatial grid queries. A chain keeps its struck list in a small preallocated array.
+- **Tower levels** (`src/config.ts`):
+  - Each type has stats for levels 1–4, precomputed once into `TOWER_STATS[type][level − 1]`. The game loop just indexes that table.
+  - Upgrades raise damage (×1.5, ×2.15, ×3), range (up to +25%) and fire rate (up to +35%). Frost also slows harder and longer, and Arc jumps 1–2 more times.
+  - Upgrade costs are 0.75×, 1.15× and 1.7× the build cost, so each costs more than the last.
+  - A tower remembers all the gold put into it; selling refunds 70% of that.
+- **Upgrade, sell and targeting are commands,** like building, so they apply on a step boundary.
+  - While paused, queued commands are applied once per frame without stepping, so you can manage towers in a paused game.
+  - Selling removes a tower by moving the last tower into its slot and fixing the per-tile lookup.
+- **Targeting modes** (`acquire` in `src/sim/towers.ts`): First (least path left), Last (most path left), Strongest (most *current* health) and Closest (nearest the tower). Each mode turns into a score where lower wins, so one loop over the grid query serves all four. Changing the mode makes the tower re-pick on the next step.
 - **Seven enemies** (numbers in `src/config.ts`): Grunt, Runner (fast, fragile), Swarmling (tiny, in packs), Brute (slow, armor 6), Wisp (flies the air route, so Cannon and Arc can't hit it), Mender and the Warlord.
   - **Mender:** every 2.5 s it heals each hurt enemy within 72 px, itself included, by 10% of their max health. This runs right after the grid rebuild, so it's one grid query per Mender.
   - **Warlord:** when killed, it queues a split: 6 Runners, spaced along the path where it died, with that wave's health scaling. They're added after the step's frees, never mid-step. The split holds the wave open until those Runners are gone too.
@@ -153,6 +166,7 @@ It builds towers on the listed tiles with real mouse clicks (`k@tx,ty` picks tow
 - **Enemies are drawn interpolated:** each enemy is drawn between its previous and current step position with one `drawImage`, so movement is smooth at any refresh rate.
 - **Culling through the grid:** the renderer walks only the grid cells overlapping the view, plus one cell of margin. A row of cells is one contiguous run in the grid's slot array, so each visible row is one loop. Visible enemies and their interpolated positions go into preallocated arrays that every later pass reuses. The cost follows what's on screen, not how many enemies exist.
 - **Draw order:** background → portals → selection ring → tower bases → turrets (one rotated `setTransform` each) → ground enemies → Warlords → flyer shadows (one fill) → flyers → base → bolt tracers and cannon shells → rings and beams → health bars → build preview.
+- **Tower levels** show as gold pips under each upgraded tower: one batched fill for all of them. The selection ring uses the tower's current level range.
 - **Flyers** are drawn 12 px above their ground position with a gentle hover, so they read as airborne and pass over everything on the ground.
 - **Batched strokes and fills:**
   - All bolt tracers are two strokes in total (a glow and a core).
@@ -184,7 +198,7 @@ Measured with the per-frame CPU split from the recorder below:
 - **One sprite atlas,** so every entity draw uses the same source image and Chrome can batch them.
 - **Batched vector drawing:** all tracers are 2 strokes, and all health bars are 4 fills.
 - **Tight sprite frames:** the Grunt frame went from 30×30 to 24×24 world px, 36% fewer pixels filled per enemy.
-- **DOM updates only on change:** the temporary readout writes only when a number changes, and the perf overlay refreshes 4 times a second, not every frame.
+- **DOM updates only on change:** the HUD keeps the last value it showed for each field and writes only what changed (`textContent` and class toggles). A quiet frame touches no DOM. The next-wave preview is rebuilt once per wave, and the perf overlay refreshes 4 times a second, not every frame. An A/B run of `?stress` with the HUD shown and hidden gave the same render time (3.5–3.6 ms vs 3.4–3.8 ms per frame).
 
 ## How performance is measured
 
@@ -219,13 +233,16 @@ Apple M1 (8 cores), Chrome 157, headed window, 1440×900 at 2× pixel ratio, mai
 
 | Scenario | Result | Avg FPS | p95 frame | FPS at p95 | Frames over 33 ms | Sim CPU | Render CPU | Min enemies | Min projectiles | Drawn | Heap start → end |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| `stress-fit` | **PASS** | 59.9 | 16.8 ms | 59.5 | 0.17% | 0.82 ms | 3.12 ms | 5,124 | 1,106 | 5,148 | 5.1 → 5.3 MB |
-| `stress-zoom` | **PASS** | 60.0 | 17.0 ms | 58.8 | 0.00% | 0.92 ms | 1.69 ms | 5,124 | 1,106 | 2,216 | 5.4 → 5.4 MB |
-| `stress-interactive` | **PASS** | 59.9 | 17.2 ms | 58.1 | 0.17% | 0.85 ms | 2.83 ms | 5,124 | 1,106 | 4,324 | 5.4 → 5.6 MB |
-| `control-interactive` | **PASS** | 60.0 | 17.6 ms | 56.8 | 0.00% | 0.01 ms | 0.10 ms | – | – | 0 | 4.7 → 5.0 MB |
+| `stress-fit` | **PASS** | 59.6 | 17.6 ms | 56.8 | 0.59% | 1.22 ms | 3.95 ms | 5,092 | 1,103 | 5,145 | 5.2 → 5.3 MB |
+| `stress-zoom` | **PASS** | 60.0 | 17.6 ms | 56.8 | 0.00% | 1.12 ms | 1.57 ms | 5,092 | 1,103 | 1,674 | 5.3 → 4.8 MB |
+| `stress-interactive` | **PASS** | 59.1 | 17.6 ms | 56.8 | 0.93% | 1.20 ms | 4.19 ms | 5,092 | 1,103 | 4,944 | 5.5 → 6.1 MB |
+| `control-interactive` | **PASS** | 60.0 | 17.6 ms | 56.8 | 0.00% | 0.02 ms | 0.14 ms | – | – | 0 | 4.8 → 5.1 MB |
 
-*Measured after feature 7.*
+*Measured after feature 9, with the HUD on screen and all 100 stress towers at **level 4**, the heaviest case: longest ranges and most chain jumps. Stress enemies have 1,800 health so most survive.*
+
+**Background load matters.** A first run after feature 9, with the load average at 31 (another browser at 100% CPU plus Spotlight indexing), failed `stress-fit` and `stress-interactive`: 18% and 9% of frames over 33 ms. Its *simulation* time also more than doubled (2.8 ms vs 1.2 ms), and the HUD can't affect that, so the machine was the cause. An A/B check with the HUD shown and hidden confirmed it. The rerun above was taken at a load average of about 13 falling to 6. Final numbers for feature 12 will be taken on an idle machine.
 - **Towers:** a mix of all five types (50 Bolt, 20 Cannon, 10 each of Frost, Arc and Sniper), with their shells, lightning, tracers and rings.
+- **Towers at level 4** since feature 8.
 - **Enemies:** a mix of all seven types (30% Grunt, 20% Runner, 24% Swarmling, 10% Brute, 10% Wisp, 5% Mender, 1% Warlord). That includes about 500 flyers, Mender heal pulses and Warlord splits.
 
 Earlier runs with fewer types gave the same picture, within ±1 FPS.
