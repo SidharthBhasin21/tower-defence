@@ -38,8 +38,8 @@ If the code and this document disagree, fix one of them in the same change. Don'
 
 | Tool | Purpose | Status |
 |---|---|---|
-| Vitest | Unit and simulation tests behind `npm run test` | To add |
-| playwright-core | Drives the installed Google Chrome to run the stress benchmark and full 50-wave run, and saves results as JSON. Uses `channel: "chrome"`, so no browser download | To add |
+| Vitest | Unit and simulation tests behind `npm run test` | Added (feature 0) |
+| playwright-core | Drives the installed Google Chrome in real time. `scripts/shot.mjs` checks the running game (state and a screenshot); later it runs the stress benchmark and full 50-wave run and saves results as JSON. Uses `channel: "chrome"`, so no browser download | Added (feature 2) |
 
 ### 1.4 npm scripts
 
@@ -83,6 +83,7 @@ src/
     waves.ts            Generates the 50 waves; runtime spawn scheduler
     fx.ts               Particles, beams, rings, floating text (visual-only pools)
     events.ts           Preallocated event ring: sim → client (sound, toasts, UI)
+    demo.ts             TEMPORARY (features 2–4): trickle and burst Grunt spawns, replaced by waves
     stress.ts           Stress scenario controller
     bot.ts              Scripted player for balance tests and the full-run benchmark
   render/
@@ -91,6 +92,7 @@ src/
     background.ts       Pre-renders the static map to one offscreen canvas
     camera.ts           Pan, zoom, world↔screen conversion, view rectangle
   ui/
+    debug.ts            TEMPORARY (features 2–8): lives and enemy readout, replaced by the HUD
     hud.ts              DOM HUD; writes only values that changed
     screens.ts          Title, pause, victory, game-over screens
     input.ts            Pointer and keyboard → command queue
@@ -100,10 +102,13 @@ src/
     recorder.ts         Frame-time ring buffer, percentiles, heap samples
     overlay.ts          On-screen perf panel (toggle with `` ` ``)
 tests/                  Vitest specs
+scripts/shot.mjs        Opens the dev server in real Chrome, prints game state, saves a screenshot
 scripts/bench.mjs       Benchmark runner (playwright-core and system Chrome)
 bench/results/          Benchmark output (JSON)
 README.md               Architecture, rendering, bottlenecks, optimizations, measurement
 ```
+
+**Dev-only hook:** in dev builds `main.ts` puts `{ game, camera, renderer, demo, loop }` on `window.__td` for `scripts/shot.mjs` and console debugging. Production builds leave it out.
 
 **Dependency direction:** `sim/` imports only `config.ts` and `rng.ts`. `render/`, `ui/`, `audio/` and `perf/` read the sim's state but never change it, except that input sends commands. Nothing in `sim/` imports from those folders.
 

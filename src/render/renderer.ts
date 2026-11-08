@@ -2,6 +2,7 @@ import { DT, WORLD_H, WORLD_W } from '../config.ts'
 import type { Game } from '../sim/game.ts'
 import { BG_SCALE, baseCentre, portalPositions, renderBackground } from './background.ts'
 import type { Camera, Rect } from './camera.ts'
+import { buildSprites, type Sprites } from './sprites.ts'
 
 /** Colour drawn outside the map. */
 const VOID = '#0b130e'
@@ -19,10 +20,16 @@ export class Renderer {
   private readonly background: HTMLCanvasElement
   private readonly portalGlow: HTMLCanvasElement
   private readonly baseGlow: HTMLCanvasElement
+  private readonly hurtGlow: HTMLCanvasElement
+  private readonly sprites: Sprites
   private readonly portals: readonly (readonly [number, number])[]
   private readonly base: readonly [number, number]
   private readonly view: Rect = { x0: 0, y0: 0, x1: 0, y1: 0 }
   private dpr = 1
+  /** Red flash on the base after a leak, fading from 1 to 0 in real time. */
+  private baseFlash = 0
+  /** Enemies drawn last frame (for the debug readout). */
+  drawnEnemies = 0
 
   constructor(canvas: HTMLCanvasElement, camera: Camera, game: Game) {
     const ctx = canvas.getContext('2d', { alpha: false })
@@ -34,6 +41,8 @@ export class Renderer {
     this.background = renderBackground(game.map)
     this.portalGlow = glowSprite(64, '190, 120, 255')
     this.baseGlow = glowSprite(96, '110, 220, 255')
+    this.hurtGlow = glowSprite(96, '255, 70, 60')
+    this.sprites = buildSprites()
     this.portals = portalPositions(game.map)
     this.base = baseCentre()
   }
@@ -46,7 +55,12 @@ export class Renderer {
     this.camera.setViewport(cssW, cssH)
   }
 
-  render(alpha: number): void {
+  /** Called when an enemy reaches the base. */
+  flashBase(): void {
+    this.baseFlash = 1
+  }
+
+  render(alpha: number, realDt: number): void {
     const { ctx, camera, dpr } = this
     // Sim time, interpolated: animations freeze when paused and scale with game speed.
     const t = (this.game.tick + alpha) * DT
@@ -62,7 +76,37 @@ export class Renderer {
 
     this.drawBackground(v)
     this.drawPortals(t, v)
+    // Enemies before the base, so they walk into it rather than over it.
+    this.drawEnemies(alpha, t, v)
     this.drawBase(t, v)
+    this.baseFlash = Math.max(0, this.baseFlash - realDt * 2.5)
+  }
+
+  /**
+   * Ground enemies, interpolated between the last two steps.
+   * Culled by bounds check for now; feature 3 switches to grid-based culling.
+   */
+  private drawEnemies(alpha: number, t: number, v: Rect): void {
+    const ctx = this.ctx
+    const e = this.game.enemies
+    const img = this.sprites.atlas.canvas
+    const frames = this.sprites.enemy
+    const active = e.active
+    let drawn = 0
+    for (let k = 0; k < e.count; k++) {
+      const s = active[k]
+      if (!e.alive[s]) continue
+      const f = frames[e.type[s]]
+      const hw = f.w / 2
+      const hh = f.h / 2
+      const x = e.px[s] + (e.x[s] - e.px[s]) * alpha
+      // Small walking bob, phase-shifted per slot so the crowd doesn't move in lockstep.
+      const y = e.py[s] + (e.y[s] - e.py[s]) * alpha - Math.abs(Math.sin(t * 9 + s * 1.7)) * 1.5
+      if (x + hw < v.x0 || x - hw > v.x1 || y + hh < v.y0 || y - hh > v.y1) continue
+      ctx.drawImage(img, f.sx, f.sy, f.sw, f.sh, x - hw, y - hh, f.w, f.h)
+      drawn++
+    }
+    this.drawnEnemies = drawn
   }
 
   /** Copies only the visible part of the pre-rendered map. */
@@ -109,6 +153,10 @@ export class Renderer {
     const pulse = 0.75 + 0.25 * Math.sin(t * 2)
     ctx.globalAlpha = pulse
     ctx.drawImage(this.baseGlow, x - 48, y - 48, 96, 96)
+    if (this.baseFlash > 0) {
+      ctx.globalAlpha = this.baseFlash
+      ctx.drawImage(this.hurtGlow, x - 64, y - 64, 128, 128)
+    }
     ctx.globalAlpha = 1
     const bob = Math.sin(t * 1.6) * 1.5
     const top = y - 18 + bob
