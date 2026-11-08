@@ -1,21 +1,30 @@
 import './style.css'
-
-// Feature 0: an empty canvas sized to the window and device pixel ratio.
-// The game loop arrives in feature 1 (see ARCHITECTURE.md §3).
+import { GameLoop } from './loop.ts'
+import { Camera } from './render/camera.ts'
+import { Renderer } from './render/renderer.ts'
+import { Game } from './sim/game.ts'
+import { CameraInput } from './ui/input.ts'
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game')
 if (!canvas) throw new Error('Missing #game canvas')
 
-const ctx = canvas.getContext('2d', { alpha: false })
-if (!ctx) throw new Error('Canvas 2D is not supported')
+const game = new Game()
+const camera = new Camera()
+const renderer = new Renderer(canvas, camera, game)
+const input = new CameraInput(canvas, camera)
 
 function resize(): void {
-  const dpr = window.devicePixelRatio || 1
-  canvas!.width = Math.round(window.innerWidth * dpr)
-  canvas!.height = Math.round(window.innerHeight * dpr)
-  ctx!.fillStyle = '#0f1a14'
-  ctx!.fillRect(0, 0, canvas!.width, canvas!.height)
+  renderer.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1)
 }
-
 window.addEventListener('resize', resize)
 resize()
+camera.fit()
+
+const loop = new GameLoop({
+  step: () => game.step(),
+  render: (alpha, realDt) => {
+    input.update(realDt)
+    renderer.render(alpha)
+  },
+})
+loop.start()

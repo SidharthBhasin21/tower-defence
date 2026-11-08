@@ -201,6 +201,9 @@ Each step runs these phases in this order:
 
 - **One `<canvas>`**, context `getContext("2d", { alpha: false })`, sized to the window × `devicePixelRatio` and re-sized when the window changes.
 - **The camera** (pan and zoom from 0.5× to 2.5×) is applied once per frame with `setTransform`. Entities are drawn in world coordinates.
+  - The minimum zoom drops below 0.5× when needed so the whole map always fits on small screens.
+  - Until the player pans or zooms, the camera re-fits the map whenever the window is resized.
+  - The view can go at most 96 world px past the map edge, and the map is centred on any axis where it's smaller than the view.
 
 ### 5.2 Assets made at startup
 
@@ -271,8 +274,9 @@ Any LOD added must be recorded in the README, with the measurement that justifie
   | `F` | Cycle speed |
   | `R` | Restart, after confirming |
   | `M` | Mute |
-  | Mouse wheel | Zoom |
-  | Drag with right or middle button, or `WASD` / arrow keys | Pan |
+  | Mouse wheel, trackpad pinch, `+` / `-` | Zoom (wheel and pinch zoom at the cursor) |
+  | Drag with any button (after 5 px, so clicks still work), or `WASD` / arrow keys | Pan |
+  | `Home` | Fit the whole map |
   | `` ` `` | Perf overlay |
 - **Audio:** small synthesized sounds created with Web Audio. Each sound has a rate limit so 5,000 enemies can't flood the audio graph. Audio starts on the first click or keypress, as browsers require.
 
