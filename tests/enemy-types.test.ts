@@ -32,7 +32,7 @@ describe('Enemy roster', () => {
     expect(by(EnemyType.Brute).speed).toBeLessThan(by(EnemyType.Grunt).speed)
     expect(ENEMIES.filter((e) => e.air).map((e) => e.name)).toEqual(['Wisp'])
     expect(by(EnemyType.Warlord).hp).toBeGreaterThan(by(EnemyType.Brute).hp * 5)
-    expect(ENEMIES.map((e) => e.leak)).toEqual([1, 1, 1, 3, 2, 2, 20])
+    expect(ENEMIES.map((e) => e.leak)).toEqual([1, 1, 1, 3, 2, 2, 10])
   })
 })
 

@@ -2,7 +2,7 @@
 
 A single-player tower defense game for desktop browsers. It runs entirely offline, with no server and no external assets. You defend a base against 50 waves by placing, upgrading and selling towers that fire automatically.
 
-> **Status:** in development, being built feature by feature. Done so far: **feature 10 (sound and visual polish)**. The game is playable from start to finish:
+> **Status:** in development, being built feature by feature. Done so far: **feature 11 (balance)**. The game is playable from start to finish:
 > - Five towers: Bolt, Cannon, Frost, Arc and Sniper, each attacking in its own way.
 > - Seven enemies: Grunt, Runner, Swarmling, Brute (armored), Wisp (flies), Mender (heals) and the Warlord boss (splits into Runners).
 > - Towers upgrade to level 4 and sell for 70% of what was spent on them. Each tower has a targeting mode (First, Last, Strongest or Closest), all set from a tower panel.
@@ -12,7 +12,9 @@ A single-player tower defense game for desktop browsers. It runs entirely offlin
 > - A HUD (lives, gold, wave, score, enemies left, next-wave preview with a **Send now** button, pause/speed/sound/restart buttons), a build bar of tower cards, toasts, and a **How to play** screen.
 > - Sound effects made in code (each tower, kills, explosions, leaks, building, upgrades, waves, bosses, win and loss), death bursts, sparks, floating gold numbers and screen shake.
 >
-> Balance tuning comes in feature 11.
+> - Balanced with a scripted bot: a good mixed defence wins, while a weak defence or any single tower type loses. See [Balance](#balance).
+>
+> Still to come: feature 12, the final stress test, benchmarks and README.
 
 ### Controls so far
 
@@ -54,6 +56,12 @@ npm run test
 ```bash
 npm run build
 ```
+
+```bash
+npm run balance -- --margin --waves
+```
+
+`npm run balance` plays full 50-wave games with the scripted bot in Node (no browser, about 3 seconds) and prints how far each strategy gets. See [Balance](#balance).
 
 `npm run build` type-checks the project and outputs a static site to `dist/`. Open it with `npm run preview`.
 
@@ -106,7 +114,7 @@ It builds towers on the listed tiles with real mouse clicks (`k@tx,ty` picks tow
 - **Step order** (`Game.step`): apply commands → wave scheduler spawns → move enemies → rebuild the grid → towers → projectiles → free dead enemies → wave bookkeeping (clear bonuses, countdown, win and loss).
 - **Waves** (`src/sim/waves.ts`):
   - All 50 waves are generated once at startup from curves, not written by hand.
-    - Health multiplier: ×1 at wave 1, rising to about ×14 by wave 50.
+    - Health multiplier: `1 + 0.09n + 0.0075n²` (n = wave − 1), ×1 at wave 1 rising to about ×23 by wave 50.
     - Wave size: 10 Grunt-equivalents rising to about 100.
     - Spawn spacing: shrinks to 35%.
   - A roster says which wave each enemy type first appears in: Runner 3, Swarmling 5, Brute 7, Wisp 9, Warlord 10, Mender 12. Each type has a weight (its share of the wave) and a threat cost in Grunt-equivalents, and the budget is split by weight.
@@ -137,7 +145,7 @@ It builds towers on the listed tiles with real mouse clicks (`k@tx,ty` picks tow
   - **Cannon:** a shell fired at where the target *will be*, found by walking the enemy's path ahead for the shell's flight time. It bursts on landing with splash that falls from 100% at the centre to 50% at the rim. Ground only.
   - **Frost:** no turret. A pulse damages and slows every enemy in range, air included. Slows don't stack: the strongest active slow wins.
   - **Arc:** no turret. Instant lightning that jumps up to 4 times to the nearest enemy not yet struck within 64 px, keeping 80% of the damage each jump. Armor counts half. Ground only.
-  - **Sniper:** slow-turning rifle with 270 px range. Instant 130-damage hits that ignore armor; hits air.
+  - **Sniper:** slow-turning rifle with 220 px range. Instant 130-damage hits that ignore armor, 0.35 shots a second; hits air.
   - All targeting and splash use the same spatial grid queries. A chain keeps its struck list in a small preallocated array.
 - **Tower levels** (`src/config.ts`):
   - Each type has stats for levels 1–4, precomputed once into `TOWER_STATS[type][level − 1]`. The game loop just indexes that table.
@@ -190,6 +198,46 @@ All sounds are synthesized with Web Audio at runtime (`src/audio/sfx.ts`): short
 - **Rate-limited so a busy game can't flood the audio graph.** Each sound has a minimum gap between plays (45 ms for kill pops up to 1 s for the end jingles), and at most 6 new sounds start per frame. Web Audio nodes are objects, so each sound allocates a few; the limits keep that to a few dozen sounds a second at most, outside the simulation, and the stress benchmark below runs with sound on.
 - **Small random detune** on every play so repeated shots don't sound mechanical; kill pops are pitched by enemy size.
 - **Starts on the first click or key press,** as browsers require. Mute (`M` or the HUD button) is saved with the other settings.
+
+## Balance
+
+Balance is tested by playing, not by guessing. `src/sim/bot.ts` is a scripted player that uses the same actions a person does (build, upgrade, send the next wave). It runs the real simulation in Node, so a full 50-wave game takes well under a second.
+
+**How the bot plays:**
+- Before the game it scores every buildable tile for each tower type by how much path the tower would cover from there. The air route only counts for towers that hit air, and counts for less, since fewer enemies fly.
+- It keeps its tower count at `3 + 0.6 × wave` (up to 40). Each new tower is the type furthest below its share of the mix (Bolt 3 : Cannon 2 : Frost 1 : Arc 2 : Sniper 2), on that type's best free tile. If that type isn't affordable yet it saves for it.
+- Once it has enough towers it upgrades, lowest level first.
+- It sends the next wave early only when the map is empty. It never sells and never changes targeting modes, so a person has tricks it doesn't.
+
+**What "balanced" means here,** and the checks in `tests/balance.test.ts`:
+1. The **reference bot** (the mix above) clears all 50 waves.
+2. It has **some slack, but not much.** The *margin* is how much tower fire rate it can lose and still win, found by binary search (`npm run balance -- --margin`). The test checks that it wins at 80% fire rate and loses at 60%, and that it falls in the late game, not on the first boss.
+3. A **weak player** (8 Bolts, never upgraded) loses.
+4. **Every single-tower strategy loses,** so the player has to mix tower types (DOMAIN.md §5).
+
+**Before tuning,** the game was far too easy and the Sniper was too strong. "Died on" is the newest wave in play when lives hit 0. Waves overlap, and a boss wave stays open while the next ones start on their timers, so it can be a few waves past the last one cleared.
+
+| Strategy | Before: died on (cleared) | After: died on (cleared) | What got through, after |
+|---|---|---|---|
+| Reference bot | **Won**, 20/20 lives, **margin 2.22** | **Won**, 20/20 lives, **margin 1.44** | nothing |
+| Weak bot | 13 (9) | 12 (9) | Wisps |
+| Bolt only | 44 (42) | 33 (29) | Wisps, a Warlord |
+| Cannon only | 11 (9) | 11 (9) | Wisps (can't hit air) |
+| Frost only | 14 (9) | 11 (7) | Wisps, Brutes |
+| Arc only | 11 (9) | 11 (9) | Wisps (can't hit air) |
+| Sniper only | **Won**, 20/20 lives | 43 (39) | Runners, a Warlord |
+
+A margin of 2.22 meant a strong player could lose more than half their firepower and still win, and the weakened bot failed on wave 13 rather than near the end. By wave 35 it had every tower at max level and gold piling up.
+
+**What changed:**
+- **Health curve:** the quadratic term went from `0.0035n²` to `0.0075n²`. Early waves barely change (wave 10 is ×2.4 instead of ×2.1), while the late game is much tougher: wave 50 enemies have about ×23 base health instead of ×14. Now the weakened reference bot's first failure is wave 50, so difficulty really does keep rising to the end.
+- **Sniper:** range 270 → 220 px and fire rate 0.4 → 0.35 shots a second. On its own it now falls at wave 43, overrun by Runners. It's still the longest-range tower and the best boss killer.
+- **Warlord leak:** 20 → 10 lives (DOMAIN.md §2.4, changed at the user's request). With 20 lives, one boss getting through ended the game outright; now it's a heavy blow but survivable. It doesn't change the bot results above, because none of those games were lost to a single boss leak.
+- I tried a steeper curve (`0.012n²`) and the reference bot lost at wave 30, so the chosen value sits between "too easy" and "unwinnable for a strong player".
+
+**What ends games:** mostly **Wisps**. They fly their own route, which Cannon and Arc can't hit, so a defence without air cover (Bolt, Frost or Sniper near the air route) falls soon after they arrive at wave 9. That's the main reason single-tower and careless builds lose, and the reason the mix matters.
+
+The seed only changes where enemies walk within their lane, so all seeds give nearly the same result: balance doesn't depend on luck.
 
 ## Performance bottlenecks
 

@@ -69,7 +69,7 @@ The game is defined by the rules below. Numbers marked *(tuned)* are starting va
 | **Swarmling** | Ground | Tiny and weak, arrives in large packs | 1 |
 | **Mender** | Ground | Regularly **heals** nearby enemies | 2 |
 | **Wisp** | **Air** | Takes the air route; Cannon and Arc can't hit it | 2 |
-| **Warlord** | Ground | Boss on waves 10, 20, 30, 40 and 50; huge health; **splits into Runners** when killed | 20 |
+| **Warlord** | Ground | Boss on waves 10, 20, 30, 40 and 50; huge health; **splits into Runners** when killed | 10 *(tuned)* |
 
 **Damage rules:**
 - **Armor** takes a flat amount off every hit, but a hit always does at least 20% of its damage.

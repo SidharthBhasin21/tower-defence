@@ -47,7 +47,16 @@ const STYLE = `
 .td-card{width:min(460px,100%);max-height:calc(100vh - 32px);overflow:auto;padding:30px 34px 26px;border-radius:18px;text-align:center;
   background:linear-gradient(180deg,#1b2c21,#132019);border:1px solid #35553f;box-shadow:0 24px 60px rgba(0,0,0,0.5);
   color:#eef4ef;font:15px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;animation:td-in 0.18s ease-out}
-.td-card.wide{width:min(620px,100%);text-align:left}
+.td-card.wide{width:min(1000px,100%);text-align:left;padding:22px 28px 0;font-size:13px}
+.td-card.wide h1{font-size:28px}
+.td-card.wide h3{margin:12px 0 4px}
+.td-card.wide ul,.td-card.wide .grid{font-size:13px}
+.td-card.wide li{margin:1px 0}
+.td-card.wide .grid{gap:2px 12px}
+.td-card.wide .td-row{position:sticky;bottom:0;margin:14px -28px 0;padding:12px 0 16px;
+  background:linear-gradient(180deg,rgba(19,32,25,0),#132019 30%)}
+.td-card .cols{display:grid;grid-template-columns:1.15fr 1fr;gap:0 28px}
+@media (max-width:760px){.td-card .cols{grid-template-columns:1fr}.td-card .cols>:last-child{order:-1}}
 @keyframes td-in{from{opacity:0;transform:translateY(8px) scale(0.98)}}
 .td-card h1{margin:0 0 4px;font-size:34px;letter-spacing:0.01em;text-align:center}
 .td-card h1.win{color:#ffd864}
@@ -147,54 +156,56 @@ export class Screens {
     ;(document.activeElement as HTMLElement | null)?.blur?.()
   }
 
+  /**
+   * How to play: rules, towers and enemies on the left, every control on the
+   * right, sized to fit a laptop screen without scrolling. On short or narrow
+   * windows the card scrolls, and its Back button stays pinned in view.
+   */
   private help(): void {
     this.heading('How to play')
-    this.section('Goal')
-    this.list([
-      `Enemies walk the paths to your base. Each one that gets through costs lives (bigger ones cost more).`,
+    const cols = el('div', 'cols')
+    const left = el('div')
+    const right = el('div')
+    cols.append(left, right)
+    this.card.append(cols)
+
+    section(left, 'Goal')
+    list(left, [
+      'Enemies walk the paths to your base. Each one that gets through costs lives (bigger ones cost more).',
       `Survive all ${WAVE_COUNT} waves to win. Lose every life and the game is over.`,
-      'Kills pay gold. Clearing a wave pays a bonus, and calling the next wave early pays gold for the seconds you skip.',
+      'Kills pay gold. Clearing a wave pays a bonus; sending the next wave early pays for the seconds skipped.',
     ])
-    this.section('Towers')
-    const towers = el('div', 'grid')
-    for (const t of TOWERS) {
-      const name = el('b')
-      name.innerHTML = `<kbd>${t.key}</kbd> ${t.name} · ${t.cost}g`
-      const blurb = el('span')
-      blurb.textContent = t.blurb
-      towers.append(name, blurb)
-    }
-    this.card.append(towers)
-    this.list(['Click a tower to see its stats, upgrade it (up to level 4), change its target or sell it for 70% back.'])
-    this.section('Enemies')
-    const foes = el('div', 'grid')
-    for (const [k, e] of ENEMIES.entries()) {
-      const name = el('b')
-      name.textContent = e.name
-      const blurb = el('span')
-      blurb.textContent = ENEMY_BLURB[k] ?? ''
-      foes.append(name, blurb)
-    }
-    this.card.append(foes)
-    this.section('Controls')
-    const keys = el('div', 'grid')
-    const rows: [string, string][] = [
-      ['<kbd>1</kbd>–<kbd>5</kbd>', 'Pick a tower, then click a tile. Shift-click keeps building.'],
-      ['<kbd>U</kbd> <kbd>X</kbd> <kbd>T</kbd>', 'Upgrade, sell or change the target of the selected tower'],
-      ['<kbd>Space</kbd>', 'Start, or send the next wave now'],
-      ['<kbd>P</kbd> <kbd>F</kbd> <kbd>M</kbd>', 'Pause, game speed (1×/2×/4×), sound'],
-      ['<kbd>R</kbd> <kbd>Esc</kbd>', 'Restart, cancel'],
-      ['Drag / wheel', 'Move and zoom the camera'],
+    section(left, 'Towers')
+    grid(
+      left,
+      TOWERS.map((t) => [`<kbd>${t.key}</kbd> ${t.name} · ${t.cost}g`, t.blurb]),
+    )
+    list(left, ['Click a tower to upgrade it (up to level 4), change its target, or sell it for 70% back.'])
+    section(left, 'Enemies')
+    grid(
+      left,
+      ENEMIES.map((e, k) => [e.name, ENEMY_BLURB[k] ?? '']),
+    )
+
+    section(right, 'Controls')
+    grid(right, [
+      ['<kbd>1</kbd>–<kbd>5</kbd>', 'Pick a tower (or click its card), then click a tile to build'],
+      ['Shift + click', 'Build and keep building'],
+      ['Click a tower', 'Select it: range, stats and the tower panel'],
+      ['<kbd>U</kbd>', 'Upgrade the selected tower'],
+      ['<kbd>X</kbd>', 'Sell the selected tower'],
+      ['<kbd>T</kbd>', 'Change its target: First, Last, Strongest, Closest'],
+      ['Right-click / <kbd>Esc</kbd>', 'Stop building, or deselect'],
+      ['<kbd>Space</kbd>', 'Start, or send the next wave now (early = bonus gold)'],
+      ['<kbd>P</kbd>', 'Pause or resume'],
+      ['<kbd>F</kbd>', 'Game speed: 1×, 2×, 4×'],
+      ['<kbd>M</kbd>', 'Sound on or off'],
+      ['<kbd>R</kbd>', 'Restart (asks first)'],
+      ['Drag / <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / arrows', 'Pan the camera'],
+      ['Wheel / pinch / <kbd>+</kbd> <kbd>-</kbd>', 'Zoom'],
+      ['<kbd>Home</kbd>', 'Fit the whole map'],
       ['<kbd>`</kbd>', 'Performance overlay'],
-    ]
-    for (const [k, v] of rows) {
-      const kb = el('b')
-      kb.innerHTML = k
-      const d = el('span')
-      d.textContent = v
-      keys.append(kb, d)
-    }
-    this.card.append(keys)
+    ])
   }
 
   private heading(text: string, cls = ''): void {
@@ -213,22 +224,6 @@ export class Screens {
     const d = el('div', cls)
     d.textContent = text
     this.card.append(d)
-  }
-
-  private section(text: string): void {
-    const h = el('h3')
-    h.textContent = text
-    this.card.append(h)
-  }
-
-  private list(items: string[]): void {
-    const ul = el('ul')
-    for (const i of items) {
-      const li = el('li')
-      li.textContent = i
-      ul.append(li)
-    }
-    this.card.append(ul)
   }
 
   private endStats(s: EndStats): void {
@@ -256,6 +251,35 @@ export class Screens {
     }
     this.card.append(row)
   }
+}
+
+function section(parent: HTMLElement, text: string): void {
+  const h = el('h3')
+  h.textContent = text
+  parent.append(h)
+}
+
+function list(parent: HTMLElement, items: string[]): void {
+  const ul = el('ul')
+  for (const i of items) {
+    const li = el('li')
+    li.textContent = i
+    ul.append(li)
+  }
+  parent.append(ul)
+}
+
+/** Two-column rows; the left cell is trusted markup (key caps), the right is text. */
+function grid(parent: HTMLElement, rows: [string, string][]): void {
+  const g = el('div', 'grid')
+  for (const [k, v] of rows) {
+    const b = el('b')
+    b.innerHTML = k
+    const d = el('span')
+    d.textContent = v
+    g.append(b, d)
+  }
+  parent.append(g)
 }
 
 function el(tag: string, cls = ''): HTMLElement {

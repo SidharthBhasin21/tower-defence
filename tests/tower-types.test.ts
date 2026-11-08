@@ -153,7 +153,7 @@ describe('Sniper', () => {
 
   it('reaches much further than the other towers', () => {
     const others = TOWERS.filter((t) => t.name !== 'Sniper').map((t) => t.range)
-    expect(TOWERS[TowerType.Sniper].range).toBeGreaterThan(Math.max(...others) * 2)
+    expect(TOWERS[TowerType.Sniper].range).toBeGreaterThan(Math.max(...others) * 1.6)
   })
 })
 

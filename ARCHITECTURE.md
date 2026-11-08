@@ -86,7 +86,7 @@ src/
     events.ts           Sim → client events (sound, toasts, shake, UI)
     commands.ts         Player → sim commands, applied at the start of the next step
     stress.ts           Stress scenario: 100 towers, tops up to 5,000 enemies and 1,000+ projectiles
-    bot.ts              Scripted player for balance tests and the full-run benchmark
+    bot.ts              Scripted player (plans: reference, weak, single-tower) for balance tests and the full-run benchmark
   render/
     renderer.ts         Canvas 2D renderer: camera transform, culling, draw passes
     atlas.ts            The sprite atlas canvas and its packer
@@ -108,6 +108,7 @@ src/
 tests/                  Vitest specs
 scripts/shot.mjs        Opens the dev server in real Chrome, builds towers (--build "k@tx,ty"), sets gold (--gold), window size (--size WxH), prints game state, saves a screenshot
 scripts/bench.mjs       Benchmark runner (playwright-core and system Chrome)
+scripts/balance.mjs     Plays full games with the bot in Node; prints results, per-wave lives and gold, and the reference bot's margin
 bench/results/          Benchmark output (JSON)
 README.md               Architecture, rendering, bottlenecks, optimizations, measurement
 ```
@@ -197,7 +198,7 @@ Each step runs these phases in this order:
 - **Each wave is a list of spawn groups.** A group has `{ type, count, interval, delay, pathMask }`.
 - **One scheduler spawns everything.** It ticks a fixed-capacity list of active groups, so waves called early can overlap.
 - **Curves (tuned):**
-  - Health multiplier: `1 + 0.09n + 0.0035n²`, where n = wave − 1.
+  - Health multiplier: `1 + 0.09n + 0.0075n²`, where n = wave − 1 (tuned with the bot in feature 11).
   - Budget: `10 + 1.5n + 0.007n²` Grunt-equivalents, split across the roster types present by weight. Each type has a threat cost: Grunt 1, Runner 0.8, Swarmling 0.3, Brute 4, Wisp 1.1, Mender 2.5.
   - Warlords are added on top: 12 each; 1 on waves 10 and 20, 2 on 30 and 40, 3 on 50.
   - **Threat** = Σ count × cost × health multiplier. A wave's regular budget is at least the previous wave's whole threat (so the wave after a boss isn't easier), and any rounding shortfall is topped up with Grunts. Threat is therefore non-decreasing, and a test checks it.
@@ -282,6 +283,7 @@ Any LOD added must be recorded in the README, with the measurement that justifie
   - Tower and enemy icons are copied from the sprite atlas into small canvases once, at startup.
   - **Camera insets:** the camera knows how many pixels the HUD bars cover at the top and bottom (`camera.setInsets`, measured from the DOM on resize). Fit and pan limits use the uncovered area, so the map is never hidden under the bars.
 - **Screens:** title, how to play, pause, victory, game over (final score, stats, best score) and restart confirmation.
+  - How to play lists every control. It is two columns (rules, towers and enemies; controls) sized to fit a 1280×720 window without scrolling. Below 760 px wide it becomes one column with the controls first, and the Back button stays pinned in view when the card has to scroll.
 - **Controls:**
 
   | Input | Action |
@@ -353,7 +355,7 @@ Any LOD added must be recorded in the README, with the measurement that justifie
 - **Paths:** sample spacing is even, and the end of each path is reached.
 - **Determinism:** the same seed and commands, stepped with frame times of 60 Hz, 144 Hz and random jitter, end in identical state.
 - **Waves:** there are exactly 50, difficulty never drops from one wave to the next, and every enemy type appears.
-- **Balance:** the reference bot wins all 50 waves, and a deliberately weak bot loses before wave 50.
+- **Balance:** the reference bot wins all 50 waves, still wins with towers at 80% fire rate and loses at 60% (late, not on the first boss); a deliberately weak bot loses; and each single-tower strategy loses.
 - **Memory:** a full run never goes past a pool's capacity, and pool counts return to 0 after the game ends.
 
 ---

@@ -75,10 +75,10 @@ export function bossCount(w: number): number {
   return w % BOSS_EVERY === 0 ? 1 + Math.floor((w - BOSS_EVERY) / (2 * BOSS_EVERY)) : 0
 }
 
-/** Health multiplier for wave `w` (1-based): ×1 at wave 1, about ×14 at wave 50 (tuned). */
+/** Health multiplier for wave `w` (1-based): ×1 at wave 1, about ×23 at wave 50 (tuned in feature 11 with the bot, see README). */
 export function waveHpMul(w: number): number {
   const n = w - 1
-  return 1 + 0.09 * n + 0.0035 * n * n
+  return 1 + 0.09 * n + 0.0075 * n * n
 }
 
 /** Wave size in Grunt-equivalents: 10 at wave 1, about 100 at wave 50 (tuned). */

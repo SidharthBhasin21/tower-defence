@@ -141,7 +141,7 @@ export type ArmorModeId = (typeof ArmorMode)[keyof typeof ArmorMode]
 
 const NO_EXTRAS = { splash: 0, slow: 1, slowTime: 0, chains: 0, chainRange: 0, chainFalloff: 1, armor: ArmorMode.Full } as const
 
-/** Indexed by TowerType. Values are starting points (tuned in feature 11). */
+/** Indexed by TowerType. Tuned with the balance bot (README, Balance); Sniper range and fire rate were cut in feature 11. */
 export const TOWERS: readonly TowerDef[] = [
   {
     ...NO_EXTRAS,
@@ -168,7 +168,7 @@ export const TOWERS: readonly TowerDef[] = [
   },
   {
     ...NO_EXTRAS,
-    name: 'Sniper', key: '5', cost: 140, range: 270, fireRate: 0.4, damage: 130, projectileSpeed: 0, hitsAir: true, turnRate: 5,
+    name: 'Sniper', key: '5', cost: 140, range: 220, fireRate: 0.35, damage: 130, projectileSpeed: 0, hitsAir: true, turnRate: 5,
     armor: ArmorMode.Ignore,
     blurb: 'Huge hits from far away. Ignores armor. Slow to reload.',
   },
@@ -285,7 +285,7 @@ export const ENEMIES: readonly EnemyDef[] = [
   { name: 'Brute', hp: 170, speed: 28, armor: 6, bounty: 11, leak: 3, radius: 13, air: false },
   { name: 'Wisp', hp: 34, speed: 54, armor: 0, bounty: 5, leak: 2, radius: 9, air: true },
   { name: 'Mender', hp: 75, speed: 38, armor: 1, bounty: 8, leak: 2, radius: 10, air: false },
-  { name: 'Warlord', hp: 1500, speed: 24, armor: 8, bounty: 120, leak: 20, radius: 18, air: false },
+  { name: 'Warlord', hp: 1500, speed: 24, armor: 8, bounty: 120, leak: 10, radius: 18, air: false },
 ]
 
 /** Mender: seconds between heals, heal radius (px) and share of max health restored to each enemy nearby. */
