@@ -1,5 +1,18 @@
-import { AIM_TOLERANCE, DT, ENEMIES, MAP_H, MAP_W, MAX_ENEMY_RADIUS, RETARGET_STEPS, TILE, TOWERS } from '../config.ts'
+import {
+  AIM_TOLERANCE,
+  DT,
+  ENEMIES,
+  MAP_H,
+  MAP_W,
+  MAX_ENEMY_RADIUS,
+  RETARGET_STEPS,
+  TILE,
+  TOWERS,
+  TowerType,
+  type TowerDef,
+} from '../config.ts'
 import { Ev } from './events.ts'
+import { BeamKind, RingKind } from './fx.ts'
 import type { Game } from './game.ts'
 
 const TAU = Math.PI * 2
@@ -114,20 +127,107 @@ export function stepTowers(g: Game): void {
     }
     if (s < 0) continue
 
-    // Turn toward the target at a limited rate.
-    const want = Math.atan2(e.y[s] - t.y[i], e.x[s] - t.x[i])
-    let diff = want - t.angle[i]
-    diff -= Math.round(diff / TAU) * TAU
-    const maxTurn = def.turnRate * DT
-    t.angle[i] += diff > maxTurn ? maxTurn : diff < -maxTurn ? -maxTurn : diff
+    // Turn toward the target at a limited rate (towers with a turret only).
+    let aimed = true
+    if (def.turnRate > 0) {
+      const want = Math.atan2(e.y[s] - t.y[i], e.x[s] - t.x[i])
+      let diff = want - t.angle[i]
+      diff -= Math.round(diff / TAU) * TAU
+      const maxTurn = def.turnRate * DT
+      t.angle[i] += diff > maxTurn ? maxTurn : diff < -maxTurn ? -maxTurn : diff
+      aimed = Math.abs(diff) <= AIM_TOLERANCE
+    }
 
-    if (t.cooldown[i] <= 0 && Math.abs(diff) <= AIM_TOLERANCE) {
+    if (t.cooldown[i] <= 0 && aimed) {
       t.cooldown[i] += 1 / (def.fireRate * g.fireRateMul)
       if (t.cooldown[i] < 0) t.cooldown[i] = 0
       t.recoil[i] = 1
-      g.fireProjectile(i, s)
+      fire(g, i, s, def)
       g.events.push(Ev.Shot, t.type[i], i)
     }
+  }
+}
+
+/** One attack from tower `i` at enemy `s`, by tower type (DOMAIN.md §2.3). */
+function fire(g: Game, i: number, s: number, def: TowerDef): void {
+  const t = g.towers
+  switch (t.type[i]) {
+    case TowerType.Frost:
+      frostPulse(g, i, def)
+      break
+    case TowerType.Arc:
+      arcChain(g, i, s, def)
+      break
+    case TowerType.Sniper: {
+      const a = t.angle[i]
+      g.beams.add(BeamKind.Sniper, t.x[i] + Math.cos(a) * 15, t.y[i] + Math.sin(a) * 15, g.enemies.x[s], g.enemies.y[s], 0.22)
+      g.damage(s, def.damage, def.armor)
+      break
+    }
+    default:
+      g.fireProjectile(i, s)
+  }
+}
+
+/** Frost: damages and slows every enemy in range, air included. */
+function frostPulse(g: Game, i: number, def: TowerDef): void {
+  const t = g.towers
+  const e = g.enemies
+  const buf = g.queryBuf
+  const n = g.grid.query(e, t.x[i], t.y[i], def.range + MAX_ENEMY_RADIUS, buf)
+  for (let k = 0; k < n; k++) {
+    const s = buf[k]
+    if (!e.alive[s] || !inRange(g, i, s, def.range)) continue
+    if (ENEMIES[e.type[s]].air && !def.hitsAir) continue
+    g.slow(s, def.slow, def.slowTime)
+    g.damage(s, def.damage, def.armor)
+  }
+  g.rings.add(RingKind.Frost, t.x[i], t.y[i], def.range, 0.45)
+}
+
+/** Enemies already struck by the current chain (reused; chains are short). */
+const chainHit = new Int32Array(16)
+
+/**
+ * Arc: an instant bolt to the target, then jumps to the nearest enemy not yet
+ * struck within `chainRange`, losing damage each jump. Ground only.
+ */
+function arcChain(g: Game, i: number, first: number, def: TowerDef): void {
+  const e = g.enemies
+  const buf = g.queryBuf
+  let fromX = g.towers.x[i]
+  let fromY = g.towers.y[i] - 8 // the coil's tip
+  let cur = first
+  let amount = def.damage
+  const hops = Math.min(def.chains + 1, chainHit.length)
+  for (let h = 0; h < hops; h++) {
+    const x = e.x[cur]
+    const y = e.y[cur]
+    g.beams.add(BeamKind.Arc, fromX, fromY, x, y, 0.16)
+    chainHit[h] = cur
+    g.damage(cur, amount, def.armor)
+    if (h === hops - 1) break
+    // Nearest unstruck ground enemy within jump range.
+    const n = g.grid.query(e, x, y, def.chainRange + MAX_ENEMY_RADIUS, buf)
+    let next = -1
+    let best = Infinity
+    for (let k = 0; k < n; k++) {
+      const s = buf[k]
+      if (!e.alive[s] || ENEMIES[e.type[s]].air) continue
+      let seen = false
+      for (let m = 0; m <= h; m++) if (chainHit[m] === s) seen = true
+      if (seen) continue
+      const d = (e.x[s] - x) ** 2 + (e.y[s] - y) ** 2
+      if (d < best && d <= def.chainRange * def.chainRange) {
+        best = d
+        next = s
+      }
+    }
+    if (next < 0) break
+    fromX = x
+    fromY = y
+    cur = next
+    amount *= def.chainFalloff
   }
 }
 

@@ -181,6 +181,8 @@ function onEvent(type: number, a: number, b: number): void {
     readout.flash(b > 0 ? `Wave ${a} called early: +${b} gold` : `Wave ${a}`, frameNow, true)
   } else if (type === Ev.WaveCleared) {
     readout.flash(`Wave ${a} cleared: +${b} gold`, frameNow, true)
+  } else if (type === Ev.BossSpawn) {
+    readout.flash(`Wave ${a}: a Warlord approaches!`, frameNow)
   } else if (type === Ev.Victory) {
     endGame(true)
   } else if (type === Ev.Defeat) {

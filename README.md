@@ -2,12 +2,14 @@
 
 A single-player tower defense game for desktop browsers. It runs entirely offline, with no server and no external assets. You defend a base against 50 waves by placing, upgrading and selling towers that fire automatically.
 
-> **Status:** in development, being built feature by feature. Done so far: **feature 5 (waves and game states)**. The game is playable from start to finish:
+> **Status:** in development, being built feature by feature. Done so far: **feature 7 (all seven enemies)**. The game is playable from start to finish:
+> - Five towers: Bolt, Cannon, Frost, Arc and Sniper, each attacking in its own way.
+> - Seven enemies: Grunt, Runner, Swarmling, Brute (armored), Wisp (flies), Mender (heals) and the Warlord boss (splits into Runners).
 > - 50 waves with a countdown between them, plus a bonus for calling the next wave early.
 > - Victory and game-over screens, with the best score kept on this device.
 > - Pause, three game speeds, and restart.
 >
-> For now there's only one tower type (Bolt) and one enemy type (Grunt), and a temporary readout stands in for the HUD.
+> A temporary readout stands in for the HUD. Upgrades, selling and targeting modes come next (feature 8), and balance tuning comes later (feature 11).
 
 ### Controls so far
 
@@ -16,7 +18,7 @@ A single-player tower defense game for desktop browsers. It runs entirely offlin
 | Drag (any mouse button) or `WASD` / arrow keys | Pan |
 | Mouse wheel, trackpad pinch, `+` / `-` | Zoom |
 | `Home` | Fit the whole map |
-| `1` | Build a Bolt (50 gold); click a tile to place it |
+| `1`–`5` | Build a Bolt (50), Cannon (90), Frost (70), Arc (110) or Sniper (140); click a tile to place it |
 | Shift + click | Place and keep building |
 | Click a tower | Select it and show its range |
 | Right-click / `Esc` | Stop building, or deselect |
@@ -56,7 +58,7 @@ To check the running game in real Chrome (dev server must be running):
 node scripts/shot.mjs http://localhost:5173/ --build "7,5;9,7;4,17" --hover 15,10 --wait 8000 --out shot.png
 ```
 
-It builds Bolts on the listed tiles with real mouse clicks, leaves the build preview over another tile, then prints the game state (lives, gold, score, kills, towers, projectiles, enemies) and any console errors, and saves a screenshot. Some embedded preview panes don't deliver `requestAnimationFrame` callbacks, so the game looks frozen there. Use real Chrome or this script instead.
+It builds towers on the listed tiles with real mouse clicks (`k@tx,ty` picks tower `k`; `--gold N` sets the gold first), leaves the build preview over another tile, then prints the game state (lives, gold, score, kills, towers, projectiles, enemies) and any console errors, and saves a screenshot. Some embedded preview panes don't deliver `requestAnimationFrame` callbacks, so the game looks frozen there. Use real Chrome or this script instead.
 
 ## Project docs
 
@@ -102,7 +104,9 @@ It builds Bolts on the listed tiles with real mouse clicks, leaves the build pre
     - Health multiplier: ×1 at wave 1, rising to about ×14 by wave 50.
     - Wave size: 10 Grunt-equivalents rising to about 100.
     - Spawn spacing: shrinks to 35%.
-  - A roster says which wave each enemy type first appears in. A test checks that enemy count and total health never drop from one wave to the next.
+  - A roster says which wave each enemy type first appears in: Runner 3, Swarmling 5, Brute 7, Wisp 9, Warlord 10, Mender 12. Each type has a weight (its share of the wave) and a threat cost in Grunt-equivalents, and the budget is split by weight.
+  - Warlords come on top of the budget on waves 10 and 20 (one), 30 and 40 (two) and 50 (three).
+  - **Difficulty never drops:** a wave's *threat* (Σ count × threat cost × health multiplier) is never below the previous wave's. The wave after a boss carries the boss's threat forward as extra regular enemies, and rounding shortfalls are topped up with Grunts. A test checks this, the introduction schedule and the boss waves. Raw enemy count can dip when a few Brutes replace many Swarmlings.
   - Each wave is a list of spawn groups `{ type, count, interval, delay, pathMask }`. At runtime one scheduler ticks a fixed list of up to 64 active groups held in typed arrays, so waves called early simply overlap.
   - Every enemy carries its wave index. Per-wave counters of enemies "still to spawn" and "still in play" drive the clear bonus and the countdown, which starts once the newest wave has spawned.
   - Calling early pays 1 gold per second skipped.
@@ -119,7 +123,23 @@ It builds Bolts on the listed tiles with real mouse clicks, leaves the build pre
 - **Projectiles** (`src/sim/projectiles.ts`):
   - Dense typed arrays; removal moves the last projectile into the gap.
   - They home in on their target's slot and generation. If the target dies first, they fly on for at most 0.25 s, hitting anything they touch (found with the grid), then fizzle.
-- **Damage** goes through one function (`Game.damage`): armor takes a flat amount off each hit, a hit always does at least 20%, and it triggers the hit flash and kill rewards.
+- **Damage** goes through one function (`Game.damage`):
+  - Armor takes a flat amount off each hit, but a hit always does at least 20%.
+  - Each tower has an armor mode: full (most towers), half (Arc) or ignored (Sniper).
+  - It also triggers the hit flash and the kill rewards.
+- **Five towers, four kinds of attack** (`src/sim/towers.ts`, numbers in `src/config.ts`):
+  - **Bolt:** homing projectile; fast, cheap; hits air.
+  - **Cannon:** a shell fired at where the target *will be*, found by walking the enemy's path ahead for the shell's flight time. It bursts on landing with splash that falls from 100% at the centre to 50% at the rim. Ground only.
+  - **Frost:** no turret. A pulse damages and slows every enemy in range, air included. Slows don't stack: the strongest active slow wins.
+  - **Arc:** no turret. Instant lightning that jumps up to 4 times to the nearest enemy not yet struck within 64 px, keeping 80% of the damage each jump. Armor counts half. Ground only.
+  - **Sniper:** slow-turning rifle with 270 px range. Instant 130-damage hits that ignore armor; hits air.
+  - All targeting and splash use the same spatial grid queries. A chain keeps its struck list in a small preallocated array.
+- **Seven enemies** (numbers in `src/config.ts`): Grunt, Runner (fast, fragile), Swarmling (tiny, in packs), Brute (slow, armor 6), Wisp (flies the air route, so Cannon and Arc can't hit it), Mender and the Warlord.
+  - **Mender:** every 2.5 s it heals each hurt enemy within 72 px, itself included, by 10% of their max health. This runs right after the grid rebuild, so it's one grid query per Mender.
+  - **Warlord:** when killed, it queues a split: 6 Runners, spaced along the path where it died, with that wave's health scaling. They're added after the step's frees, never mid-step. The split holds the wave open until those Runners are gone too.
+- **Effects are written by the simulation** (`src/sim/fx.ts`):
+  - Only the sim knows where a chain jumped or a shell burst, so it writes beams (lightning, sniper tracers) and rings (frost pulses, explosions, Mender heals) into two fixed pools of 512.
+  - The pools age in game time, so effects freeze when paused. Gameplay never reads them.
 - **Sim → client events** (`src/sim/events.ts`): the simulation writes small integer records (such as "enemy reached the base") into a preallocated ring buffer. The client reads it once per frame for feedback. The simulation never calls rendering or audio code.
 
 ## Rendering approach
@@ -132,13 +152,18 @@ It builds Bolts on the listed tiles with real mouse clicks, leaves the build pre
 - **One sprite atlas** (`src/render/atlas.ts`): every entity sprite is drawn in code at startup into one 3×-resolution canvas. All entity draws use that same source image, which lets the browser batch them.
 - **Enemies are drawn interpolated:** each enemy is drawn between its previous and current step position with one `drawImage`, so movement is smooth at any refresh rate.
 - **Culling through the grid:** the renderer walks only the grid cells overlapping the view, plus one cell of margin. A row of cells is one contiguous run in the grid's slot array, so each visible row is one loop. Visible enemies and their interpolated positions go into preallocated arrays that every later pass reuses. The cost follows what's on screen, not how many enemies exist.
-- **Draw order:** background → portals → selection ring → tower bases → turrets (one rotated `setTransform` each) → enemies → base → bolt tracers → health bars → build preview.
-- **Batched strokes and fills:** all bolt tracers are two strokes in total (a glow and a core). Health bars, shown only for damaged enemies, are one fill for the backgrounds and one per colour band (green, yellow, red).
+- **Draw order:** background → portals → selection ring → tower bases → turrets (one rotated `setTransform` each) → ground enemies → Warlords → flyer shadows (one fill) → flyers → base → bolt tracers and cannon shells → rings and beams → health bars → build preview.
+- **Flyers** are drawn 12 px above their ground position with a gentle hover, so they read as airborne and pass over everything on the ground.
+- **Batched strokes and fills:**
+  - All bolt tracers are two strokes in total (a glow and a core).
+  - All cannon shells are two fills: their ground shadows, then the shells, lifted along a parabolic arc computed from their flight time.
+  - All lightning is one path stroked twice. Its jagged shape comes from a cheap hash, re-shaped every 4 steps so it flickers.
+  - The few sniper tracers, frost rings and explosion rings fade individually with `globalAlpha`. All are culled against the view. Health bars, shown only for damaged enemies, are one fill for the backgrounds and one per colour band (green, yellow, red).
 - **Hit flash:** each enemy sprite has a white-tinted copy in the atlas, swapped in for 0.08 s after a hit. There's no per-draw filter or compositing.
 - **Build preview:** the hovered tile turns green or red depending on the same `canPlace` check the simulation uses, with a ghost tower and its range ring.
 - **Leak feedback:** when an enemy reaches the base, a red glow flashes over it and fades in real time.
 
-*Still to come: directional sprites, particles and effects. See ARCHITECTURE.md §5.*
+*Still to come: directional sprites, particles and floating text. See ARCHITECTURE.md §5.*
 
 ## Performance bottlenecks
 
@@ -194,19 +219,23 @@ Apple M1 (8 cores), Chrome 157, headed window, 1440×900 at 2× pixel ratio, mai
 
 | Scenario | Result | Avg FPS | p95 frame | FPS at p95 | Frames over 33 ms | Sim CPU | Render CPU | Min enemies | Min projectiles | Drawn | Heap start → end |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| `stress-fit` | **PASS** | 60.0 | 17.6 ms | 56.8 | 0.00% | 0.76 ms | 3.00 ms | 5,041 | 1,101 | 5,048 | 3.9 → 4.9 MB |
-| `stress-zoom` | **PASS** | 60.0 | 16.9 ms | 59.2 | 0.00% | 0.85 ms | 1.59 ms | 5,041 | 1,101 | 2,291 | 3.9 → 4.4 MB |
-| `stress-interactive` | **PASS** | 58.9 | 17.6 ms | 56.8 | 0.68% | 0.99 ms | 2.83 ms | 5,041 | 1,101 | 4,270 | 4.3 → 4.8 MB |
-| `control-interactive` | **PASS** | 60.0 | 17.6 ms | 56.8 | 0.08% | 0.01 ms | 0.11 ms | – | – | 0 | 4.4 → 4.6 MB |
+| `stress-fit` | **PASS** | 59.9 | 16.8 ms | 59.5 | 0.17% | 0.82 ms | 3.12 ms | 5,124 | 1,106 | 5,148 | 5.1 → 5.3 MB |
+| `stress-zoom` | **PASS** | 60.0 | 17.0 ms | 58.8 | 0.00% | 0.92 ms | 1.69 ms | 5,124 | 1,106 | 2,216 | 5.4 → 5.4 MB |
+| `stress-interactive` | **PASS** | 59.9 | 17.2 ms | 58.1 | 0.17% | 0.85 ms | 2.83 ms | 5,124 | 1,106 | 4,324 | 5.4 → 5.6 MB |
+| `control-interactive` | **PASS** | 60.0 | 17.6 ms | 56.8 | 0.00% | 0.01 ms | 0.10 ms | – | – | 0 | 4.7 → 5.0 MB |
 
-*Measured after feature 5. Feature 4's run gave the same picture, within ±1 FPS.*
+*Measured after feature 7.*
+- **Towers:** a mix of all five types (50 Bolt, 20 Cannon, 10 each of Frost, Arc and Sniper), with their shells, lightning, tracers and rings.
+- **Enemies:** a mix of all seven types (30% Grunt, 20% Runner, 24% Swarmling, 10% Brute, 10% Wisp, 5% Mender, 1% Warlord). That includes about 500 flyers, Mender heal pulses and Warlord splits.
+
+Earlier runs with fewer types gave the same picture, within ±1 FPS.
 
 What this shows:
 
 - **Every scenario holds the display's 60 Hz** with the full load: at least 5,000 enemies, 100 towers and 1,100 projectiles in every frame. That leaves a wide margin over both targets (45 FPS at p95, under 5% of frames over 33 ms).
 - **CPU use is about 4 ms of a 16.7 ms frame,** so there's room for the remaining towers, enemies and effects.
-- **Culling works:** zoomed in, less than half the enemies are drawn and render time halves (3.0 → 1.6 ms), while the simulation cost stays the same.
-- **Input stays responsive under load.** Average input latency is 15.4 ms under stress, the same as the control, so the difference is the harness, not the game.
+- **Culling works:** zoomed in, less than half the enemies are drawn and render time about halves (3.1 → 1.7 ms), while the simulation cost stays the same.
+- **Input stays responsive under load.** Average input latency is 15.1 ms under stress against 17.2 ms in the control, so the difference is the harness, not the game.
 - **Memory is flat:** the heap moves by about 1 MB or less over each run, with no growth.
 
 Raw results are in `bench/results/`. The earlier battery runs were dropped because Chrome was capping them at 30 FPS.

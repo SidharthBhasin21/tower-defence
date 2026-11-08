@@ -34,8 +34,15 @@ export interface WaveDef {
   readonly groups: readonly SpawnGroup[]
   /** Enemies in the wave. */
   readonly total: number
-  /** Sum of count × scaled health: the measure that never decreases. */
+  /**
+   * Difficulty: Σ count × threat unit × health multiplier, bosses included.
+   * The generator guarantees it never decreases from one wave to the next.
+   */
+  readonly threat: number
+  /** Sum of count × scaled base health. */
   readonly totalHp: number
+  /** True on Warlord waves (10, 20 … 50). */
+  readonly boss: boolean
 }
 
 interface RosterEntry {
@@ -44,17 +51,29 @@ interface RosterEntry {
   readonly from: number
   /** Share of the wave's budget, relative to the other types present. */
   readonly weight: number
-  /** Budget cost of one enemy, in Grunt-equivalents. */
+  /** Threat of one enemy, in Grunt-equivalents (budget cost). */
   readonly unit: number
   /** Seconds between spawns at wave 1; shrinks with the wave number. */
   readonly interval: number
 }
 
-/**
- * Enemy types the generator may use. Feature 7 adds Runner (wave 3),
- * Swarmling (5), Brute (7), Wisp (9), Warlord (10, 20…50) and Mender (12).
- */
-const ROSTER: readonly RosterEntry[] = [{ type: EnemyType.Grunt, from: 1, weight: 1, unit: 1, interval: 0.7 }]
+/** When each enemy type first appears (DOMAIN.md §2.5) and its share of a wave (tuned). */
+const ROSTER: readonly RosterEntry[] = [
+  { type: EnemyType.Grunt, from: 1, weight: 3, unit: 1, interval: 0.7 },
+  { type: EnemyType.Runner, from: 3, weight: 2, unit: 0.8, interval: 0.45 },
+  { type: EnemyType.Swarmling, from: 5, weight: 1.5, unit: 0.3, interval: 0.16 },
+  { type: EnemyType.Brute, from: 7, weight: 1.5, unit: 4, interval: 1.6 },
+  { type: EnemyType.Wisp, from: 9, weight: 1.2, unit: 1.1, interval: 0.8 },
+  { type: EnemyType.Mender, from: 12, weight: 0.8, unit: 2.5, interval: 1.8 },
+]
+
+/** Warlords: one on waves 10 and 20, two on 30 and 40, three on 50. Threat is on top of the budget. */
+const BOSS_EVERY = 10
+const BOSS_UNIT = 12
+const BOSS_INTERVAL = 3
+export function bossCount(w: number): number {
+  return w % BOSS_EVERY === 0 ? 1 + Math.floor((w - BOSS_EVERY) / (2 * BOSS_EVERY)) : 0
+}
 
 /** Health multiplier for wave `w` (1-based): ×1 at wave 1, about ×14 at wave 50 (tuned). */
 export function waveHpMul(w: number): number {
@@ -75,30 +94,57 @@ function intervalScale(w: number): number {
 
 const GROUP_STAGGER = 2 // seconds between groups of different types
 
+/**
+ * Builds the 50 waves. Each wave's budget is split across the roster types
+ * present, by weight. Bosses come on top, and so that the wave after a boss
+ * is never easier, the regular part of a wave is at least the previous
+ * wave's whole threat; any shortfall from rounding is topped up with Grunts.
+ */
 export function generateWaves(): WaveDef[] {
   const waves: WaveDef[] = []
+  let prevThreat = 0
   for (let w = 1; w <= WAVE_COUNT; w++) {
     const present = ROSTER.filter((r) => r.from <= w)
     const weights = present.reduce((sum, r) => sum + r.weight, 0)
-    const budget = waveBudget(w)
     const hpMul = waveHpMul(w)
+    const bosses = bossCount(w)
+    // Regular budget, in Grunt-equivalents at this wave's health.
+    const budget = Math.max(waveBudget(w), prevThreat / hpMul)
+    const counts = present.map((r) => Math.max(1, Math.round((budget * r.weight) / weights / r.unit)))
+    let units = present.reduce((sum, r, k) => sum + counts[k] * r.unit, 0)
+    if (units < budget) {
+      counts[0] += Math.ceil(budget - units) // Grunts, unit 1
+      units = present.reduce((sum, r, k) => sum + counts[k] * r.unit, 0)
+    }
     const groups: SpawnGroup[] = []
     let total = 0
     let totalHp = 0
     present.forEach((r, k) => {
-      const count = Math.max(1, Math.round((budget * r.weight) / weights / r.unit))
-      const air = ENEMIES[r.type].air
       groups.push({
         type: r.type,
-        count,
+        count: counts[k],
         interval: Math.max(1, Math.round((r.interval * intervalScale(w)) / DT)),
         delay: Math.round((k * GROUP_STAGGER) / DT),
-        pathMask: air ? PATH_AIR : PATH_A | PATH_B,
+        pathMask: ENEMIES[r.type].air ? PATH_AIR : PATH_A | PATH_B,
       })
-      total += count
-      totalHp += count * ENEMIES[r.type].hp * hpMul
+      total += counts[k]
+      totalHp += counts[k] * ENEMIES[r.type].hp * hpMul
     })
-    waves.push({ number: w, hpMul, groups, total, totalHp })
+    if (bosses > 0) {
+      // The boss walks in behind the opening groups.
+      groups.push({
+        type: EnemyType.Warlord,
+        count: bosses,
+        interval: Math.round(BOSS_INTERVAL / DT),
+        delay: Math.round(4 / DT),
+        pathMask: PATH_A | PATH_B,
+      })
+      total += bosses
+      totalHp += bosses * ENEMIES[EnemyType.Warlord].hp * hpMul
+    }
+    const threat = (units + bosses * BOSS_UNIT) * hpMul
+    waves.push({ number: w, hpMul, groups, total, threat, totalHp, boss: bosses > 0 })
+    prevThreat = threat
   }
   return waves
 }

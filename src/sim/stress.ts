@@ -1,4 +1,4 @@
-import { EnemyType, TILE, TowerType } from '../config.ts'
+import { ENEMIES, EnemyType, TILE, TowerType } from '../config.ts'
 import { Rng } from '../rng.ts'
 import type { Game } from './game.ts'
 
@@ -16,18 +16,34 @@ const FIRE_RATE_MUL = 6
  * above the target to stay at or over 1,000 after every step.
  */
 const PROJECTILE_TOP_UP = Math.round(STRESS_PROJECTILES * 1.15)
-/** Same for enemies: towers kill some during the step, after the top-up. */
-const ENEMY_TOP_UP = STRESS_ENEMIES + 50
+/** Same for enemies: towers kill some during the step (splash and chains several at once). */
+const ENEMY_TOP_UP = STRESS_ENEMIES + 150
 /** Most enemies added per step while topping up (avoids a one-frame spike). */
 const MAX_SPAWNS_PER_STEP = 400
+/** Enemy mix: a share per type, out of 100 (every type appears, flyers included). */
+const ENEMY_MIX: readonly [number, number][] = [
+  [EnemyType.Grunt, 30],
+  [EnemyType.Runner, 20],
+  [EnemyType.Swarmling, 24],
+  [EnemyType.Brute, 10],
+  [EnemyType.Wisp, 10],
+  [EnemyType.Mender, 5],
+  [EnemyType.Warlord, 1],
+]
+/** Air route index in map.paths. */
+const AIR_PATH = 2
+/** Tower mix, repeated: half Bolts, then Cannons, and one each of Frost, Arc and Sniper per ten. */
+const TOWER_MIX = [
+  TowerType.Bolt, TowerType.Cannon, TowerType.Bolt, TowerType.Frost, TowerType.Bolt,
+  TowerType.Arc, TowerType.Bolt, TowerType.Cannon, TowerType.Bolt, TowerType.Sniper,
+]
 
 /**
  * The stress scenario (ARCHITECTURE.md §7.2): keeps 5,000 enemies, 100 towers
  * and at least 1,000 projectiles alive at once, with unlimited lives.
  *
  * Runs inside the fixed step like everything else, so it is deterministic.
- * All 5 tower types and every enemy type join as features add them; for now
- * it uses Bolts and Grunts.
+ * Uses all 5 tower types and all 7 enemy types.
  */
 export class StressController {
   private readonly rng = new Rng(0x5eed)
@@ -36,7 +52,7 @@ export class StressController {
   /** Builds the towers on the buildable tiles closest to a path. */
   setup(g: Game): void {
     g.fireRateMul = FIRE_RATE_MUL
-    for (const [tx, ty] of towerSites(g, STRESS_TOWERS)) g.towers.add(TowerType.Bolt, tx, ty, 0)
+    towerSites(g, STRESS_TOWERS).forEach(([tx, ty], k) => g.towers.add(TOWER_MIX[k % TOWER_MIX.length], tx, ty, 0))
   }
 
   /** Call before each `game.step()`. */
@@ -47,24 +63,37 @@ export class StressController {
     // Top up enemies, spread along the whole path so the field fills at once.
     let spawns = 0
     while (g.enemies.aliveCount < ENEMY_TOP_UP && spawns < MAX_SPAWNS_PER_STEP) {
-      const pathId = this.nextPath
-      this.nextPath = 1 - this.nextPath
+      const type = this.pickType()
+      let pathId = AIR_PATH
+      if (!ENEMIES[type].air) {
+        pathId = this.nextPath
+        this.nextPath = 1 - this.nextPath
+      }
       const p = g.paths[pathId]
-      const s = g.spawnEnemy(EnemyType.Grunt, pathId, this.rng.range(p.spawnDist, p.endDist - TILE))
+      const s = g.spawnEnemy(type, pathId, this.rng.range(p.spawnDist, p.endDist - TILE))
       if (s < 0) break
       g.enemies.hp[s] = g.enemies.maxHp[s] = STRESS_HP
       spawns++
     }
 
-    // Top up projectiles with extra shots from random towers at random enemies.
+    // Top up projectiles with extra Bolt shots from random towers at random enemies.
     const e = g.enemies
     let guard = 0
     while (g.projectiles.count < PROJECTILE_TOP_UP && e.count > 0 && guard++ < 2000) {
       const i = this.rng.int(0, g.towers.count - 1)
       const s = e.active[this.rng.int(0, e.count - 1)]
       if (!e.alive[s]) continue
-      g.fireProjectile(i, s)
+      g.fireProjectile(i, s, TowerType.Bolt)
     }
+  }
+
+  private pickType(): number {
+    let roll = this.rng.range(0, 100)
+    for (const [type, share] of ENEMY_MIX) {
+      if (roll < share) return type
+      roll -= share
+    }
+    return EnemyType.Grunt
   }
 }
 

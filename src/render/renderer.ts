@@ -1,4 +1,5 @@
-import { DT, ENEMIES, MAX_ENEMIES, TILE, TOWERS, WORLD_H, WORLD_W } from '../config.ts'
+import { DT, ENEMIES, EnemyType, MAX_ENEMIES, SHELL_ARC, TILE, TOWERS, WORLD_H, WORLD_W } from '../config.ts'
+import { BeamKind, RingKind } from '../sim/fx.ts'
 import { PlaceResult, type Game } from '../sim/game.ts'
 import type { Controls } from '../ui/controls.ts'
 import { BG_SCALE, baseCentre, portalPositions, renderBackground } from './background.ts'
@@ -13,6 +14,8 @@ const NO_DASH: number[] = []
 /** Health-bar colour bands, from healthy to nearly dead. */
 const HP_COLOURS = ['#5fd35f', '#f2c744', '#ef5a4c']
 const HP_BG = 'rgba(10, 14, 12, 0.85)'
+/** Flyers are drawn this far above their ground position, in world px. */
+const AIR_LIFT = 12
 
 /**
  * Canvas 2D renderer (ARCHITECTURE.md §5). Applies the camera once per frame
@@ -103,6 +106,7 @@ export class Renderer {
     this.drawEnemies()
     this.drawBase(t, v)
     this.drawProjectiles(alpha, v)
+    this.drawEffects(alpha, v)
     this.drawHealthBars()
     this.drawBuildPreview()
     this.baseFlash = Math.max(0, this.baseFlash - realDt * 2.5)
@@ -161,10 +165,13 @@ export class Renderer {
       for (let i = start; i < end; i++) {
         const s = grid.items[i]
         if (!e.alive[s]) continue
-        const r = ENEMIES[e.type[s]].radius + 6
+        const def = ENEMIES[e.type[s]]
+        const r = def.radius + 6 + (def.air ? AIR_LIFT : 0)
         const x = e.px[s] + (e.x[s] - e.px[s]) * alpha
-        // Small walking bob, phase-shifted per slot so the crowd doesn't move in lockstep.
-        const y = e.py[s] + (e.y[s] - e.py[s]) * alpha - Math.abs(Math.sin(t * 9 + s * 1.7)) * 1.5
+        // Small walking bob (or a slow hover for flyers), phase-shifted per slot so the crowd doesn't move in lockstep.
+        const y =
+          e.py[s] + (e.y[s] - e.py[s]) * alpha -
+          (def.air ? AIR_LIFT + Math.sin(t * 3 + s * 1.7) * 2 : Math.abs(Math.sin(t * 9 + s * 1.7)) * 1.5)
         if (x + r < v.x0 || x - r > v.x1 || y + r < v.y0 || y - r > v.y1) continue
         this.visSlot[n] = s
         this.visX[n] = x
@@ -176,15 +183,57 @@ export class Renderer {
     this.drawnEnemies = n
   }
 
+  /**
+   * Draw order (ARCHITECTURE.md §5.3): ground enemies, then bosses on top,
+   * then flyer shadows (one fill) and flyers above everything on the ground.
+   */
   private drawEnemies(): void {
     const ctx = this.ctx
     const e = this.game.enemies
     const img = this.sprites.atlas.canvas
     const frames = this.sprites.enemy
     const flash = this.sprites.enemyFlash
+    let bosses = 0
+    let flyers = 0
     for (let k = 0; k < this.visCount; k++) {
       const s = this.visSlot[k]
-      const f = e.flashT[s] > 0 ? flash[e.type[s]] : frames[e.type[s]]
+      const type = e.type[s]
+      if (type === EnemyType.Warlord) {
+        bosses++
+        continue
+      }
+      if (ENEMIES[type].air) {
+        flyers++
+        continue
+      }
+      const f = e.flashT[s] > 0 ? flash[type] : frames[type]
+      ctx.drawImage(img, f.sx, f.sy, f.sw, f.sh, this.visX[k] - f.w / 2, this.visY[k] - f.h / 2, f.w, f.h)
+    }
+    if (bosses > 0) {
+      for (let k = 0; k < this.visCount; k++) {
+        const s = this.visSlot[k]
+        if (e.type[s] !== EnemyType.Warlord) continue
+        const f = e.flashT[s] > 0 ? flash[EnemyType.Warlord] : frames[EnemyType.Warlord]
+        ctx.drawImage(img, f.sx, f.sy, f.sw, f.sh, this.visX[k] - f.w / 2, this.visY[k] - f.h / 2, f.w, f.h)
+      }
+    }
+    if (flyers === 0) return
+    ctx.beginPath()
+    for (let k = 0; k < this.visCount; k++) {
+      const s = this.visSlot[k]
+      const def = ENEMIES[e.type[s]]
+      if (!def.air) continue
+      const gy = this.visY[k] + AIR_LIFT + def.radius * 0.6
+      ctx.moveTo(this.visX[k] + def.radius * 0.8, gy)
+      ctx.ellipse(this.visX[k], gy, def.radius * 0.8, def.radius * 0.35, 0, 0, TAU)
+    }
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
+    ctx.fill()
+    for (let k = 0; k < this.visCount; k++) {
+      const s = this.visSlot[k]
+      const type = e.type[s]
+      if (!ENEMIES[type].air) continue
+      const f = e.flashT[s] > 0 ? flash[type] : frames[type]
       ctx.drawImage(img, f.sx, f.sy, f.sw, f.sh, this.visX[k] - f.w / 2, this.visY[k] - f.h / 2, f.w, f.h)
     }
   }
@@ -221,15 +270,23 @@ export class Renderer {
 
   // -------------------------------------------------------- projectiles
 
-  /** Bolt tracers: one glow stroke and one core stroke for all of them. */
+  /**
+   * Bolt tracers: one glow stroke and one core stroke for all of them. Cannon
+   * shells: one fill for all shadows, one for all shells, raised on an arc.
+   */
   private drawProjectiles(alpha: number, v: Rect): void {
     const ctx = this.ctx
     const p = this.game.projectiles
     if (p.count === 0) return
+    let shells = 0
     ctx.lineCap = 'round'
     for (let pass = 0; pass < 2; pass++) {
       ctx.beginPath()
       for (let i = 0; i < p.count; i++) {
+        if (p.splash[i] > 0) {
+          shells++
+          continue
+        }
         const x = p.px[i] + (p.x[i] - p.px[i]) * alpha
         const y = p.py[i] + (p.y[i] - p.py[i]) * alpha
         if (x < v.x0 - 16 || x > v.x1 + 16 || y < v.y0 - 16 || y > v.y1 + 16) continue
@@ -245,6 +302,133 @@ export class Renderer {
       }
       ctx.stroke()
     }
+    if (shells === 0) return
+    // Pass 0: ground shadows. Pass 1: the shells, lifted by their arc.
+    for (let pass = 0; pass < 2; pass++) {
+      ctx.beginPath()
+      for (let i = 0; i < p.count; i++) {
+        if (p.splash[i] === 0) continue
+        const x = p.px[i] + (p.x[i] - p.px[i]) * alpha
+        const y = p.py[i] + (p.y[i] - p.py[i]) * alpha
+        if (x < v.x0 - 40 || x > v.x1 + 40 || y < v.y0 - 40 || y > v.y1 + 40) continue
+        const u = Math.min(1, Math.max(0, 1 - (p.life[i] - alpha * DT) / p.flight[i]))
+        if (pass === 0) {
+          ctx.moveTo(x + 4, y)
+          ctx.ellipse(x, y, 4, 2.2, 0, 0, TAU)
+        } else {
+          const z = 4 * SHELL_ARC * u * (1 - u)
+          ctx.moveTo(x + 4.2, y - z)
+          ctx.arc(x, y - z, 4.2, 0, TAU)
+        }
+      }
+      ctx.fillStyle = pass === 0 ? 'rgba(0, 0, 0, 0.3)' : '#22242a'
+      ctx.fill()
+    }
+  }
+
+  // ------------------------------------------------------------ effects
+
+  /**
+   * Lightning, sniper tracers, frost pulses and explosions. Arc beams are all
+   * one path (stroked twice); the few tracers and rings fade individually.
+   */
+  private drawEffects(alpha: number, v: Rect): void {
+    const ctx = this.ctx
+    const b = this.game.beams
+    const r = this.game.rings
+    const tick = this.game.tick
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+
+    // Rings first, so beams sit on top.
+    for (let i = 0; i < r.count; i++) {
+      const R = r.radius[i]
+      if (r.x[i] + R < v.x0 || r.x[i] - R > v.x1 || r.y[i] + R < v.y0 || r.y[i] - R > v.y1) continue
+      const left = Math.max(0, r.life[i] - alpha * DT) / r.maxLife[i]
+      const u = 1 - left
+      ctx.beginPath()
+      if (r.kind[i] === RingKind.Heal) {
+        ctx.arc(r.x[i], r.y[i], R * (0.3 + 0.7 * u), 0, TAU)
+        ctx.globalAlpha = left
+        ctx.fillStyle = 'rgba(110, 230, 120, 0.12)'
+        ctx.fill()
+        ctx.strokeStyle = 'rgba(170, 255, 170, 0.8)'
+        ctx.lineWidth = 1.5
+        ctx.stroke()
+      } else if (r.kind[i] === RingKind.Frost) {
+        ctx.arc(r.x[i], r.y[i], R * (0.25 + 0.75 * u), 0, TAU)
+        ctx.globalAlpha = left
+        ctx.fillStyle = 'rgba(150, 215, 255, 0.12)'
+        ctx.fill()
+        ctx.strokeStyle = 'rgba(200, 240, 255, 0.85)'
+        ctx.lineWidth = 2
+        ctx.stroke()
+      } else {
+        ctx.arc(r.x[i], r.y[i], R * (0.45 + 0.55 * Math.sqrt(u)), 0, TAU)
+        ctx.globalAlpha = left * left
+        ctx.fillStyle = 'rgba(255, 170, 70, 0.45)'
+        ctx.fill()
+        ctx.strokeStyle = 'rgba(255, 225, 150, 0.9)'
+        ctx.lineWidth = 2.5
+        ctx.stroke()
+      }
+    }
+    ctx.globalAlpha = 1
+    if (b.count === 0) return
+
+    // Arc lightning: jagged lines, re-shaped every few steps so it flickers.
+    const flick = tick >> 2
+    for (let pass = 0; pass < 2; pass++) {
+      let any = false
+      ctx.beginPath()
+      for (let i = 0; i < b.count; i++) {
+        if (b.kind[i] !== BeamKind.Arc || !this.beamVisible(i, v)) continue
+        any = true
+        const x1 = b.x1[i]
+        const y1 = b.y1[i]
+        const dx = b.x2[i] - x1
+        const dy = b.y2[i] - y1
+        const len = Math.hypot(dx, dy) || 1
+        const nx = -dy / len
+        const ny = dx / len
+        ctx.moveTo(x1, y1)
+        for (let k = 1; k < 5; k++) {
+          const j = (jitter(b.seed[i] + flick * 31 + k * 7) - 0.5) * Math.min(14, len * 0.3)
+          ctx.lineTo(x1 + (dx * k) / 5 + nx * j, y1 + (dy * k) / 5 + ny * j)
+        }
+        ctx.lineTo(b.x2[i], b.y2[i])
+      }
+      if (!any) break
+      ctx.strokeStyle = pass === 0 ? 'rgba(160, 130, 255, 0.45)' : '#f7f2ff'
+      ctx.lineWidth = pass === 0 ? 5 : 1.6
+      ctx.stroke()
+    }
+
+    // Sniper tracers fade out.
+    for (let i = 0; i < b.count; i++) {
+      if (b.kind[i] !== BeamKind.Sniper || !this.beamVisible(i, v)) continue
+      const left = Math.max(0, b.life[i] - alpha * DT) / b.maxLife[i]
+      ctx.globalAlpha = left
+      ctx.beginPath()
+      ctx.moveTo(b.x1[i], b.y1[i])
+      ctx.lineTo(b.x2[i], b.y2[i])
+      ctx.strokeStyle = 'rgba(255, 210, 140, 0.4)'
+      ctx.lineWidth = 5
+      ctx.stroke()
+      ctx.strokeStyle = '#fff6e0'
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+    }
+    ctx.globalAlpha = 1
+  }
+
+  private beamVisible(i: number, v: Rect): boolean {
+    const b = this.game.beams
+    const x0 = Math.min(b.x1[i], b.x2[i])
+    const x1 = Math.max(b.x1[i], b.x2[i])
+    const y0 = Math.min(b.y1[i], b.y2[i])
+    const y1 = Math.max(b.y1[i], b.y2[i])
+    return !(x1 + 16 < v.x0 || x0 - 16 > v.x1 || y1 + 16 < v.y0 || y0 - 16 > v.y1)
   }
 
   // ----------------------------------------------------------- overlays
@@ -399,6 +583,12 @@ function lerpAngle(a: number, b: number, t: number): number {
 
 function visible(v: Rect, x: number, y: number, r: number): boolean {
   return x + r >= v.x0 && x - r <= v.x1 && y + r >= v.y0 && y - r <= v.y1
+}
+
+/** Cheap deterministic hash to [0, 1), for lightning shapes. */
+function jitter(n: number): number {
+  const x = Math.sin(n * 12.9898) * 43758.5453
+  return x - Math.floor(x)
 }
 
 /** A soft radial glow, rendered once and reused every frame. */

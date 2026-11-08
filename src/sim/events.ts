@@ -24,6 +24,10 @@ export const Ev = {
   Victory: 8,
   /** Lives reached 0. a = final score, b = waves cleared. */
   Defeat: 9,
+  /** A Warlord entered the map. a = wave number. */
+  BossSpawn: 10,
+  /** A Warlord died and split. a = Runners released. */
+  BossSplit: 11,
 } as const
 export type EventType = (typeof Ev)[keyof typeof Ev]
 

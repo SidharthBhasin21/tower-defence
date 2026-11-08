@@ -4,6 +4,7 @@ import {
   CLEAR_GOLD_PER_WAVE,
   DT,
   ENEMIES,
+  EnemyType,
   START_GOLD,
   START_LIVES,
   TowerType,
@@ -16,7 +17,7 @@ import { Rng } from '../src/rng.ts'
 import { Cmd } from '../src/sim/commands.ts'
 import { Ev } from '../src/sim/events.ts'
 import { Game, Phase } from '../src/sim/game.ts'
-import { WAVES } from '../src/sim/waves.ts'
+import { PATH_A, PATH_AIR, PATH_B, WAVES } from '../src/sim/waves.ts'
 
 /** Kills every living enemy (a stand-in for a perfect defence). */
 function killAll(g: Game): void {
@@ -44,14 +45,39 @@ describe('Wave generator', () => {
 
   it('never gets easier from one wave to the next', () => {
     for (let i = 1; i < WAVES.length; i++) {
-      expect(WAVES[i].total, `count, wave ${i + 1}`).toBeGreaterThanOrEqual(WAVES[i - 1].total)
-      expect(WAVES[i].totalHp, `health, wave ${i + 1}`).toBeGreaterThan(WAVES[i - 1].totalHp)
+      expect(WAVES[i].threat, `threat, wave ${i + 1}`).toBeGreaterThanOrEqual(WAVES[i - 1].threat)
       expect(WAVES[i].hpMul).toBeGreaterThan(WAVES[i - 1].hpMul)
     }
   })
 
   it('makes the last wave much harder than the first', () => {
-    expect(WAVES[WAVE_COUNT - 1].totalHp / WAVES[0].totalHp).toBeGreaterThan(50)
+    expect(WAVES[WAVE_COUNT - 1].threat / WAVES[0].threat).toBeGreaterThan(50)
+    expect(WAVES[WAVE_COUNT - 1].total).toBeGreaterThan(WAVES[0].total * 5)
+  })
+
+  it('introduces enemy types on schedule, and every type appears', () => {
+    const first = new Map<number, number>()
+    for (const w of WAVES) for (const g of w.groups) if (!first.has(g.type)) first.set(g.type, w.number)
+    expect(Object.fromEntries([...first].map(([t, w]) => [ENEMIES[t].name, w]))).toEqual({
+      Grunt: 1,
+      Runner: 3,
+      Swarmling: 5,
+      Brute: 7,
+      Wisp: 9,
+      Warlord: 10,
+      Mender: 12,
+    })
+  })
+
+  it('puts Warlords on waves 10, 20, 30, 40 and 50 only, more of them later', () => {
+    const counts = WAVES.map((w) => w.groups.find((g) => g.type === EnemyType.Warlord)?.count ?? 0)
+    WAVES.forEach((w, i) => expect(counts[i] > 0, `wave ${w.number}`).toBe(w.number % 10 === 0))
+    expect(counts[49]).toBeGreaterThan(counts[9])
+  })
+
+  it('sends flyers only on the air route and ground enemies only on ground paths', () => {
+    for (const w of WAVES)
+      for (const g of w.groups) expect(g.pathMask).toBe(ENEMIES[g.type].air ? PATH_AIR : PATH_A | PATH_B)
   })
 })
 

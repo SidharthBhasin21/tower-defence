@@ -23,6 +23,11 @@ export class ProjectilePool {
   readonly targetGen: Uint32Array
   readonly life: Float32Array
   readonly hitsAir: Uint8Array
+  /** Shells only: splash radius (0 for homing shots), landing point and total flight time. */
+  readonly splash: Float32Array
+  readonly gx: Float32Array
+  readonly gy: Float32Array
+  readonly flight: Float32Array
   count = 0
   /** Spawns refused because the pool was full. */
   dropped = 0
@@ -42,6 +47,10 @@ export class ProjectilePool {
     this.targetGen = new Uint32Array(capacity)
     this.life = new Float32Array(capacity)
     this.hitsAir = new Uint8Array(capacity)
+    this.splash = new Float32Array(capacity)
+    this.gx = new Float32Array(capacity)
+    this.gy = new Float32Array(capacity)
+    this.flight = new Float32Array(capacity)
   }
 
   /** Returns a new index, or -1 if the pool is full. */
@@ -70,6 +79,10 @@ export class ProjectilePool {
     this.targetGen[i] = this.targetGen[j]
     this.life[i] = this.life[j]
     this.hitsAir[i] = this.hitsAir[j]
+    this.splash[i] = this.splash[j]
+    this.gx[i] = this.gx[j]
+    this.gy[i] = this.gy[j]
+    this.flight[i] = this.flight[j]
   }
 
   reset(): void {
@@ -79,8 +92,12 @@ export class ProjectilePool {
 }
 
 /**
- * Phase 6 of the step. Projectiles home in on a living target. If the target
- * dies first they fly straight on and hit whatever they touch, or fizzle.
+ * Phase 6 of the step.
+ *
+ * - Homing shots (Bolt) chase a living target. If it dies first they fly
+ *   straight on and hit whatever they touch, or fizzle.
+ * - Shells (Cannon) fly to a fixed landing point, chosen when fired, and
+ *   burst there with splash damage whether or not anything is still there.
  */
 export function stepProjectiles(g: Game): void {
   const p = g.projectiles
@@ -90,6 +107,19 @@ export function stepProjectiles(g: Game): void {
     p.px[i] = p.x[i]
     p.py[i] = p.y[i]
     p.life[i] -= DT
+    if (p.splash[i] > 0) {
+      if (p.life[i] <= 0) {
+        p.x[i] = p.gx[i]
+        p.y[i] = p.gy[i]
+        g.explode(p.x[i], p.y[i], p.splash[i], p.damage[i])
+        p.remove(i)
+      } else {
+        p.x[i] += p.dx[i] * p.speed[i] * DT
+        p.y[i] += p.dy[i] * p.speed[i] * DT
+        i++
+      }
+      continue
+    }
     const travel = p.speed[i] * DT
     const s = p.targetSlot[i]
     let hit = -1

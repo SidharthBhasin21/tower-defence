@@ -92,6 +92,10 @@ export const AIM_TOLERANCE = 0.3
 
 export const TowerType = {
   Bolt: 0,
+  Cannon: 1,
+  Frost: 2,
+  Arc: 3,
+  Sniper: 4,
 } as const
 export type TowerTypeId = (typeof TowerType)[keyof typeof TowerType]
 
@@ -105,16 +109,69 @@ export interface TowerDef {
   /** Shots per second. */
   readonly fireRate: number
   readonly damage: number
-  /** Projectile speed, in world px per second. */
+  /** Projectile speed, in world px per second; 0 = the attack lands instantly. */
   readonly projectileSpeed: number
   readonly hitsAir: boolean
-  /** Turret turn speed, in radians per second. */
+  /** Turret turn speed, in radians per second; 0 = no turret to aim (fires all round). */
   readonly turnRate: number
+  /** Splash radius around the impact, in world px (0 = single target). */
+  readonly splash: number
+  /** Speed multiplier applied by a hit (1 = no slow), and how long it lasts (s). */
+  readonly slow: number
+  readonly slowTime: number
+  /** Extra enemies a hit jumps to, the jump range (px) and damage kept per jump. */
+  readonly chains: number
+  readonly chainRange: number
+  readonly chainFalloff: number
+  /** How armor applies to this tower's hits. */
+  readonly armor: ArmorModeId
+  /** One-line description for the UI. */
+  readonly blurb: string
 }
 
-/** Indexed by TowerType. Values are starting points (tuned). */
+/** How a hit treats armor (DOMAIN.md §2.4). */
+export const ArmorMode = {
+  Full: 0,
+  /** Arc: armor counts for half. */
+  Half: 1,
+  /** Sniper: armor is ignored. */
+  Ignore: 2,
+} as const
+export type ArmorModeId = (typeof ArmorMode)[keyof typeof ArmorMode]
+
+const NO_EXTRAS = { splash: 0, slow: 1, slowTime: 0, chains: 0, chainRange: 0, chainFalloff: 1, armor: ArmorMode.Full } as const
+
+/** Indexed by TowerType. Values are starting points (tuned in feature 11). */
 export const TOWERS: readonly TowerDef[] = [
-  { name: 'Bolt', key: '1', cost: 50, range: 110, fireRate: 2.5, damage: 12, projectileSpeed: 560, hitsAir: true, turnRate: 14 },
+  {
+    ...NO_EXTRAS,
+    name: 'Bolt', key: '1', cost: 50, range: 110, fireRate: 2.5, damage: 12, projectileSpeed: 560, hitsAir: true, turnRate: 14,
+    blurb: 'Fast, cheap single shots. Hits air. Weak against armor.',
+  },
+  {
+    ...NO_EXTRAS,
+    name: 'Cannon', key: '2', cost: 90, range: 125, fireRate: 0.8, damage: 34, projectileSpeed: 270, hitsAir: false, turnRate: 6,
+    splash: 44,
+    blurb: 'Slow shells that burst on landing. Ground only.',
+  },
+  {
+    ...NO_EXTRAS,
+    name: 'Frost', key: '3', cost: 70, range: 90, fireRate: 1, damage: 4, projectileSpeed: 0, hitsAir: true, turnRate: 0,
+    slow: 0.5, slowTime: 1.6,
+    blurb: 'Pulses a slow on everything in range. Hits air.',
+  },
+  {
+    ...NO_EXTRAS,
+    name: 'Arc', key: '4', cost: 110, range: 100, fireRate: 1.1, damage: 26, projectileSpeed: 0, hitsAir: false, turnRate: 0,
+    chains: 4, chainRange: 64, chainFalloff: 0.8, armor: ArmorMode.Half,
+    blurb: 'Lightning that jumps between enemies. Ground only.',
+  },
+  {
+    ...NO_EXTRAS,
+    name: 'Sniper', key: '5', cost: 140, range: 270, fireRate: 0.4, damage: 130, projectileSpeed: 0, hitsAir: true, turnRate: 5,
+    armor: ArmorMode.Ignore,
+    blurb: 'Huge hits from far away. Ignores armor. Slow to reload.',
+  },
 ]
 
 // ---- Projectiles ----
@@ -126,6 +183,15 @@ export const PROJECTILE_LIFE = 1.5
 export const ORPHAN_LIFE = 0.25
 /** Extra hit radius for projectiles, in world px. */
 export const PROJECTILE_RADIUS = 3
+/** Damage at the edge of a splash, as a fraction of the centre's. */
+export const SPLASH_EDGE = 0.5
+/** Peak height of a cannon shell's arc, in world px (drawing only). */
+export const SHELL_ARC = 26
+
+// ---- Effects (ARCHITECTURE.md §4.1, visual only) ----
+
+export const MAX_BEAMS = 512
+export const MAX_RINGS = 512
 
 // ---- Enemies (DOMAIN.md §2.4) ----
 
@@ -134,6 +200,12 @@ export const MAX_ENEMIES = 8192
 
 export const EnemyType = {
   Grunt: 0,
+  Runner: 1,
+  Swarmling: 2,
+  Brute: 3,
+  Wisp: 4,
+  Mender: 5,
+  Warlord: 6,
 } as const
 export type EnemyTypeId = (typeof EnemyType)[keyof typeof EnemyType]
 
@@ -154,10 +226,24 @@ export interface EnemyDef {
   readonly air: boolean
 }
 
-/** Indexed by EnemyType. Values are starting points (tuned). */
+/** Indexed by EnemyType. Values are starting points (tuned in feature 11). */
 export const ENEMIES: readonly EnemyDef[] = [
   { name: 'Grunt', hp: 40, speed: 44, armor: 0, bounty: 4, leak: 1, radius: 10, air: false },
+  { name: 'Runner', hp: 26, speed: 82, armor: 0, bounty: 3, leak: 1, radius: 8, air: false },
+  { name: 'Swarmling', hp: 12, speed: 58, armor: 0, bounty: 1, leak: 1, radius: 6, air: false },
+  { name: 'Brute', hp: 170, speed: 28, armor: 6, bounty: 11, leak: 3, radius: 13, air: false },
+  { name: 'Wisp', hp: 34, speed: 54, armor: 0, bounty: 5, leak: 2, radius: 9, air: true },
+  { name: 'Mender', hp: 75, speed: 38, armor: 1, bounty: 8, leak: 2, radius: 10, air: false },
+  { name: 'Warlord', hp: 1500, speed: 24, armor: 8, bounty: 120, leak: 20, radius: 18, air: false },
 ]
+
+/** Mender: seconds between heals, heal radius (px) and share of max health restored to each enemy nearby. */
+export const MENDER_INTERVAL = 2.5
+export const MENDER_RADIUS = 72
+export const MENDER_HEAL = 0.1
+/** Warlord: Runners released when it dies, and how far apart along the path (px). */
+export const WARLORD_SPLIT = 6
+export const WARLORD_SPLIT_SPACING = 10
 
 /** Largest enemy radius; grid queries are widened by it so edge contact counts. */
 export const MAX_ENEMY_RADIUS = Math.max(...ENEMIES.map((d) => d.radius))

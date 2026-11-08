@@ -6,6 +6,8 @@ import { WAVES } from '../sim/waves.ts'
  * TEMPORARY readout (features 2–8) until the real HUD arrives in feature 9.
  * Rebuilds its text only when something shown has changed.
  */
+const BUILD_HINT = TOWERS.map((t) => `${t.key} ${t.name} ${t.cost}g`).join(' · ')
+
 export class DebugReadout {
   private readonly el: HTMLElement
   private readonly msgEl: HTMLElement
@@ -65,7 +67,6 @@ export class DebugReadout {
     l[10] = speed
     l[11] = p
     l[12] = canCall
-    const bolt = TOWERS[0]
     let next = ''
     if (game.wave < WAVE_COUNT) {
       const groups = WAVES[game.wave].groups.map((g) => `${g.count} ${ENEMIES[g.type].name}`).join(', ')
@@ -83,7 +84,7 @@ export class DebugReadout {
       `Towers   ${game.towers.count}   Projectiles ${game.projectiles.count}\n` +
       (building >= 0
         ? `Building ${TOWERS[building].name}: click a tile (Shift = keep building, Esc = stop)`
-        : `${bolt.key}        build ${bolt.name} (${bolt.cost}g)`) +
+        : `1-5      build: ${BUILD_HINT}`) +
       '\nP pause · F speed · R restart'
   }
 }

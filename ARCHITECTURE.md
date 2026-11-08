@@ -81,7 +81,7 @@ src/
     projectiles.ts      Projectile pool (dense SoA, swap-remove)
     grid.ts             Uniform spatial hash, rebuilt each step by counting sort
     waves.ts            Generates the 50 waves; runtime spawn scheduler (fixed group list)
-    fx.ts               Particles, beams, rings, floating text (visual-only pools)
+    fx.ts               Beams and rings written by the sim (visual-only pools); particles and text in feature 10
     ring.ts             Preallocated integer ring buffer shared by events and commands
     events.ts           Sim → client events (sound, toasts, UI)
     commands.ts         Player → sim commands, applied at the start of the next step
@@ -106,7 +106,7 @@ src/
     recorder.ts         Frame-time ring buffer, percentiles, heap samples
     overlay.ts          On-screen perf panel (toggle with `` ` ``)
 tests/                  Vitest specs
-scripts/shot.mjs        Opens the dev server in real Chrome, prints game state, saves a screenshot
+scripts/shot.mjs        Opens the dev server in real Chrome, builds towers (--build "k@tx,ty"), sets gold (--gold), prints game state, saves a screenshot
 scripts/bench.mjs       Benchmark runner (playwright-core and system Chrome)
 bench/results/          Benchmark output (JSON)
 README.md               Architecture, rendering, bottlenecks, optimizations, measurement
@@ -151,7 +151,7 @@ README.md               Architecture, rendering, bottlenecks, optimizations, mea
 **Enemy fields:**
 - Movement: `type`, `pathId`, `dist` (distance travelled along the path), `lane` (sideways offset), `speed`.
 - Health: `hp`, `maxHp`, `armor`.
-- Status: `slowMul`, `slowT`, `flashT`, `waveId`.
+- Status: `slowMul`, `slowT`, `flashT`, `waveId`, `abilityT` (Mender heal timer).
 - Position: `x` and `y` (current), `px` and `py` (previous step), `heading`.
 - Lifecycle: `alive`, `generation`.
 
@@ -189,7 +189,7 @@ Each step runs these phases in this order:
 8. Effects: advance particles, beams, rings and text.
 9. Win and loss checks, wave-cleared bonus, between-wave countdown.
 
-**Damage.** All damage goes through one `damage(slot, amount, flags)` function. It applies armor (with a floor) and the hit flash, and handles the kill.
+**Damage.** All damage goes through one `damage(slot, amount, armorMode)` function. `armorMode` is Full, Half (Arc) or Ignore (Sniper). The function applies armor (with a 20% floor) and the hit flash, and handles the kill. Splash (`explode`) and slows (`slow`, where the strongest active slow wins) are helpers on `Game` built on top of it.
 
 ### 4.5 Waves
 
@@ -198,7 +198,9 @@ Each step runs these phases in this order:
 - **One scheduler spawns everything.** It ticks a fixed-capacity list of active groups, so waves called early can overlap.
 - **Curves (tuned):**
   - Health multiplier: `1 + 0.09n + 0.0035n²`, where n = wave − 1.
-  - Budget: `10 + 1.5n + 0.007n²` Grunt-equivalents, split across the roster types present.
+  - Budget: `10 + 1.5n + 0.007n²` Grunt-equivalents, split across the roster types present by weight. Each type has a threat cost: Grunt 1, Runner 0.8, Swarmling 0.3, Brute 4, Wisp 1.1, Mender 2.5.
+  - Warlords are added on top: 12 each; 1 on waves 10 and 20, 2 on 30 and 40, 3 on 50.
+  - **Threat** = Σ count × cost × health multiplier. A wave's regular budget is at least the previous wave's whole threat (so the wave after a boss isn't easier), and any rounding shortfall is topped up with Grunts. Threat is therefore non-decreasing, and a test checks it.
   - Spawn intervals shrink to 35%.
 - **Wave bookkeeping:**
   - Per-wave counters track enemies still to spawn and enemies still in play.
@@ -313,9 +315,9 @@ Any LOD added must be recorded in the README, with the measurement that justifie
 
 ### 7.2 Stress scenario (`?stress`)
 
-- **Towers:** 100 placed at max level, a mix of every type.
-- **Enemies:** the controller keeps 5,000 alive. It tops the count up each step, and leaked enemies go back to the start.
-- **Projectiles:** the controller keeps at least 1,000 in flight. It uses a fire-rate multiplier on projectile towers and adds extra shots when the count drops below 1,000.
+- **Towers:** 100 towers in a repeating mix of all five types (50 Bolt, 20 Cannon, 10 each of Frost, Arc and Sniper), placed on the buildable tiles nearest a ground path. They'll be max level once upgrades exist (feature 8).
+- **Enemies:** the controller keeps 5,000 alive, a mix of all seven types. Flyers use the air route. Warlord kills release their Runners as usual. It tops the count up to 5,150 each step, because splash and chains can kill dozens within one step. Leaked enemies are replaced the same way.
+- **Projectiles:** the controller keeps at least 1,000 in flight. It uses a fire-rate multiplier (×6) on every tower and adds extra Bolt shots, from random towers at random enemies, when the count drops below 1,150.
 - **Lives:** unlimited.
 - **Interaction:** the game stays fully playable, with panning, zooming, selecting and upgrading all working.
 - **Proof:** the overlay shows live counts of each kind of object, so it's visible that the targets are met.

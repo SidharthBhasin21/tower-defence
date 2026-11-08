@@ -3,9 +3,10 @@
 // state and saves a screenshot.
 //
 //   node scripts/shot.mjs [url] [--wait ms] [--keys Space,KeyF] [--build 7,5;8,5]
-//                         [--hover tx,ty] [--out file.png] [--headed]
+//                         [--hover tx,ty] [--gold n] [--out file.png] [--headed]
 //
-// --build presses "1" and Shift-clicks each tile (tile coords), like a player.
+// --build presses a tower key and Shift-clicks each tile (tile coords), like a
+// player. Prefix a tile with "k@" to pick tower k (default 1): "2@7,6;3@5,7".
 // --hover leaves the pointer over a tile in build mode, to show the preview.
 // Pass a URL with ?play to skip the title screen.
 import { chromium } from 'playwright-core'
@@ -19,8 +20,11 @@ const url = args[0] && !args[0].startsWith('--') ? args[0] : 'http://localhost:5
 const wait = Number(opt('--wait', '3000'))
 const keys = opt('--keys', '').split(',').filter(Boolean)
 const out = opt('--out', 'shot.png')
-const tiles = (v) => (v ? v.split(';').map((p) => p.split(',').map(Number)) : [])
-const builds = tiles(opt('--build', ''))
+const tiles = (v) => (v ? v.split(';').map((p) => p.replace(/^\d@/, '').split(',').map(Number)) : [])
+const builds = (opt('--build', '') || '').split(';').filter(Boolean).map((p) => {
+  const m = p.match(/^(\d)@(.*)$/)
+  return { key: m ? m[1] : '1', tile: (m ? m[2] : p).split(',').map(Number) }
+})
 const hoverTile = tiles(opt('--hover', ''))[0]
 
 /** Screen position (CSS px) of a tile centre, via the game's camera. */
@@ -38,16 +42,13 @@ page.on('pageerror', (e) => errors.push(String(e)))
 page.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
 await page.goto(url)
 await page.waitForTimeout(500)
+const gold = opt('--gold', '')
+if (gold) await page.evaluate((n) => { window.__td.game.gold = n }, Number(gold))
 for (const k of keys) await page.keyboard.press(k)
-if (builds.length) {
-  await page.keyboard.press('Digit1')
-  await page.keyboard.down('Shift')
-  for (const [tx, ty] of builds) {
-    const p = await tileToScreen(tx, ty)
-    await page.mouse.click(p.x, p.y)
-  }
-  await page.keyboard.up('Shift')
-  await page.keyboard.press('Escape')
+for (const { key, tile: [tx, ty] } of builds) {
+  await page.keyboard.press(`Digit${key}`)
+  const p = await tileToScreen(tx, ty)
+  await page.mouse.click(p.x, p.y)
 }
 if (hoverTile) {
   await page.keyboard.press('Digit1')

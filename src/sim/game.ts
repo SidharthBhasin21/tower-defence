@@ -1,5 +1,6 @@
 import {
   ARMOR_MIN_FRACTION,
+  ArmorMode,
   CLEAR_GOLD_BASE,
   CLEAR_GOLD_PER_WAVE,
   CLEAR_SCORE_PER_WAVE,
@@ -14,6 +15,7 @@ import {
   MAX_TOWERS,
   PATH_SAMPLE_STEP,
   PROJECTILE_LIFE,
+  SPLASH_EDGE,
   SCORE_PER_BOUNTY,
   SCORE_WAVE_SCALE,
   START_GOLD,
@@ -22,11 +24,19 @@ import {
   WAVE_COUNT,
   WAVE_GAP,
   WIN_SCORE_PER_LIFE,
+  MAX_ENEMY_RADIUS,
+  EnemyType,
+  MENDER_HEAL,
+  MENDER_INTERVAL,
+  MENDER_RADIUS,
+  WARLORD_SPLIT,
+  WARLORD_SPLIT_SPACING,
 } from '../config.ts'
 import { Rng } from '../rng.ts'
 import { Cmd, CommandQueue } from './commands.ts'
 import { EnemyPool } from './enemies.ts'
 import { Ev, EventQueue } from './events.ts'
+import { BeamPool, RingKind, RingPool } from './fx.ts'
 import { SpatialGrid } from './grid.ts'
 import { GameMap } from './map.ts'
 import { SampledPath } from './path.ts'
@@ -74,11 +84,19 @@ export class Game {
   /** Shared scratch buffer for grid queries (one query at a time). */
   readonly queryBuf = new Int32Array(MAX_ENEMIES)
   readonly scheduler = new WaveScheduler()
+  /** Visual-only effects written by the sim (never read by gameplay). */
+  readonly beams = new BeamPool()
+  readonly rings = new RingPool()
   readonly rng: Rng
   private readonly seed: number
   /** Per wave index: enemies not yet spawned, and enemies not yet gone (unspawned + alive). */
   private readonly waveToSpawn = new Int32Array(WAVE_COUNT)
   private readonly waveLeft = new Int32Array(WAVE_COUNT)
+  /** Warlord splits waiting for the end of the step: path, distance, wave index. */
+  private readonly splitPath = new Uint8Array(64)
+  private readonly splitDist = new Float32Array(64)
+  private readonly splitWave = new Int16Array(64)
+  private splitCount = 0
 
   /** Number of fixed steps taken since the game started. */
   tick = 0
@@ -120,9 +138,13 @@ export class Game {
     this.scheduler.step(this)
     this.stepEnemies()
     this.grid.rebuild(this.enemies)
+    this.stepMenders()
     stepTowers(this)
     stepProjectiles(this)
     this.enemies.flush()
+    this.releaseSplits()
+    this.beams.step()
+    this.rings.step()
     this.stepWaves()
   }
 
@@ -139,7 +161,10 @@ export class Game {
     this.countdown = -1
     this.waveToSpawn.fill(0)
     this.waveLeft.fill(0)
+    this.splitCount = 0
     this.scheduler.reset()
+    this.beams.reset()
+    this.rings.reset()
     this.rng.reseed(this.seed)
     this.enemies.reset()
     this.towers.reset()
@@ -214,6 +239,54 @@ export class Game {
     const e = this.enemies
     e.hp[s] = e.maxHp[s] = ENEMIES[type].hp * WAVES[wi].hpMul
     e.waveId[s] = wi
+    if (type === EnemyType.Warlord) this.events.push(Ev.BossSpawn, wi + 1)
+  }
+
+  /** Menders heal every enemy near them, themselves included, on a timer (step phase 3). */
+  private stepMenders(): void {
+    const e = this.enemies
+    for (let k = 0; k < e.count; k++) {
+      const s = e.active[k]
+      if (!e.alive[s] || e.type[s] !== EnemyType.Mender) continue
+      e.abilityT[s] -= DT
+      if (e.abilityT[s] > 0) continue
+      e.abilityT[s] += MENDER_INTERVAL
+      const x = e.x[s]
+      const y = e.y[s]
+      const buf = this.queryBuf
+      const n = this.grid.query(e, x, y, MENDER_RADIUS + MAX_ENEMY_RADIUS, buf)
+      for (let j = 0; j < n; j++) {
+        const o = buf[j]
+        if (!e.alive[o] || e.hp[o] >= e.maxHp[o]) continue
+        const dx = e.x[o] - x
+        const dy = e.y[o] - y
+        if (dx * dx + dy * dy > MENDER_RADIUS * MENDER_RADIUS) continue
+        e.hp[o] = Math.min(e.maxHp[o], e.hp[o] + e.maxHp[o] * MENDER_HEAL)
+      }
+      this.rings.add(RingKind.Heal, x, y, MENDER_RADIUS, 0.5)
+    }
+  }
+
+  /** A dead Warlord's Runners are added after the step's frees (ARCHITECTURE.md §4.1). */
+  private releaseSplits(): void {
+    for (let k = 0; k < this.splitCount; k++) {
+      const pathId = this.splitPath[k]
+      const wi = this.splitWave[k]
+      const path = this.paths[pathId]
+      const hpMul = wi >= 0 ? WAVES[wi].hpMul : 1
+      for (let r = 0; r < WARLORD_SPLIT; r++) {
+        const d = Math.min(path.endDist - 1, Math.max(path.spawnDist, this.splitDist[k] + (r - (WARLORD_SPLIT - 1) / 2) * WARLORD_SPLIT_SPACING))
+        const s = this.spawnEnemy(EnemyType.Runner, pathId, d)
+        if (s < 0) break
+        const e = this.enemies
+        e.hp[s] = e.maxHp[s] = ENEMIES[EnemyType.Runner].hp * hpMul
+        e.waveId[s] = wi
+        if (wi >= 0) this.waveLeft[wi]++
+      }
+      if (wi >= 0) this.waveLeft[wi]-- // release the hold taken at the kill
+      this.events.push(Ev.BossSplit, WARLORD_SPLIT)
+    }
+    this.splitCount = 0
   }
 
   /** An enemy left play by dying or leaking. */
@@ -281,10 +354,14 @@ export class Game {
     return i
   }
 
-  /** Launches a projectile from tower `i` at enemy slot `s`. */
-  fireProjectile(i: number, s: number): void {
+  /**
+   * Launches a projectile from tower `i` at enemy slot `s`: a homing shot, or
+   * for a splash tower a shell aimed where the enemy will be when it lands.
+   * `type` overrides the tower's own type (the stress scenario uses this).
+   */
+  fireProjectile(i: number, s: number, type = this.towers.type[i]): void {
     const t = this.towers
-    const def = TOWERS[t.type[i]]
+    const def = TOWERS[type]
     const p = this.projectiles
     const k = p.alloc()
     if (k < 0) return
@@ -292,9 +369,11 @@ export class Game {
     const ca = Math.cos(a)
     const sa = Math.sin(a)
     // Leave from the muzzle, not the tower centre.
-    p.type[k] = t.type[i]
-    p.x[k] = p.px[k] = t.x[i] + ca * 12
-    p.y[k] = p.py[k] = t.y[i] + sa * 12
+    const x0 = t.x[i] + ca * 12
+    const y0 = t.y[i] + sa * 12
+    p.type[k] = type
+    p.x[k] = p.px[k] = x0
+    p.y[k] = p.py[k] = y0
     p.dx[k] = ca
     p.dy[k] = sa
     p.speed[k] = def.projectileSpeed
@@ -303,6 +382,68 @@ export class Game {
     p.targetGen[k] = this.enemies.generation[s]
     p.life[k] = PROJECTILE_LIFE
     p.hitsAir[k] = def.hitsAir ? 1 : 0
+    p.splash[k] = def.splash
+    if (def.splash > 0) {
+      this.leadTarget(s, x0, y0, def.projectileSpeed, this.aim)
+      const dx = this.aim.x - x0
+      const dy = this.aim.y - y0
+      const d = Math.hypot(dx, dy) || 1
+      p.gx[k] = this.aim.x
+      p.gy[k] = this.aim.y
+      p.dx[k] = dx / d
+      p.dy[k] = dy / d
+      p.flight[k] = p.life[k] = d / def.projectileSpeed
+      p.targetSlot[k] = -1
+    }
+  }
+
+  /** Scratch result for leadTarget (avoids allocating). */
+  private readonly aim = { x: 0, y: 0 }
+
+  /**
+   * Where enemy `s` will be when a shot from (x0, y0) at `speed` reaches it,
+   * found by walking its path ahead (two refinement passes).
+   */
+  leadTarget(s: number, x0: number, y0: number, speed: number, out: { x: number; y: number }): void {
+    const e = this.enemies
+    const path = this.paths[e.pathId[s]]
+    const v = e.speed[s] * e.slowMul[s]
+    out.x = e.x[s]
+    out.y = e.y[s]
+    for (let pass = 0; pass < 2; pass++) {
+      const time = Math.hypot(out.x - x0, out.y - y0) / speed
+      const d = Math.min(e.dist[s] + v * time, path.endDist)
+      const j = path.index(d)
+      out.x = path.x[j] + path.nx[j] * e.lane[s]
+      out.y = path.y[j] + path.ny[j] * e.lane[s]
+    }
+  }
+
+  /** A shell bursts: damage falls from full at the centre to SPLASH_EDGE at the rim. Ground only. */
+  explode(x: number, y: number, radius: number, amount: number): void {
+    const e = this.enemies
+    const buf = this.queryBuf
+    const n = this.grid.query(e, x, y, radius + MAX_ENEMY_RADIUS, buf)
+    for (let k = 0; k < n; k++) {
+      const s = buf[k]
+      if (!e.alive[s]) continue
+      const def = ENEMIES[e.type[s]]
+      if (def.air) continue
+      const d = Math.hypot(e.x[s] - x, e.y[s] - y) - def.radius
+      if (d > radius) continue
+      const f = d <= 0 ? 1 : 1 - (1 - SPLASH_EDGE) * (d / radius)
+      this.damage(s, amount * f)
+    }
+    this.rings.add(RingKind.Explosion, x, y, radius, 0.35)
+  }
+
+  /** Applies a slow. Slows don't stack: the strongest active one wins (DOMAIN.md §2.4). */
+  slow(s: number, mul: number, time: number): void {
+    const e = this.enemies
+    if (e.slowT[s] > 0 && mul > e.slowMul[s]) return // a stronger slow is already active
+    if (mul < e.slowMul[s] || e.slowT[s] <= 0) e.slowT[s] = time
+    else if (time > e.slowT[s]) e.slowT[s] = time
+    e.slowMul[s] = mul
   }
 
   // ------------------------------------------------------------- enemies
@@ -329,6 +470,7 @@ export class Game {
     e.slowT[s] = 0
     e.flashT[s] = 0
     e.waveId[s] = -1
+    e.abilityT[s] = MENDER_INTERVAL
     this.placeEnemy(s)
     e.px[s] = e.x[s]
     e.py[s] = e.y[s]
@@ -337,12 +479,13 @@ export class Game {
 
   /**
    * The single entry point for damage (ARCHITECTURE.md §4.4). Applies armor
-   * with a floor, the hit flash, and the kill.
+   * (per the tower's ArmorMode) with a floor, the hit flash, and the kill.
    */
-  damage(s: number, amount: number): void {
+  damage(s: number, amount: number, armorMode: number = ArmorMode.Full): void {
     const e = this.enemies
     if (!e.alive[s]) return
-    const dealt = Math.max(amount - e.armor[s], amount * ARMOR_MIN_FRACTION)
+    const armor = armorMode === ArmorMode.Full ? e.armor[s] : armorMode === ArmorMode.Half ? e.armor[s] * 0.5 : 0
+    const dealt = Math.max(amount - armor, amount * ARMOR_MIN_FRACTION)
     e.hp[s] -= dealt
     e.flashT[s] = HIT_FLASH
     if (e.hp[s] <= 0) this.killEnemy(s)
@@ -356,6 +499,14 @@ export class Game {
     this.score += Math.round(bounty * SCORE_PER_BOUNTY * (1 + SCORE_WAVE_SCALE * Math.max(wi, 0)))
     this.kills++
     this.events.push(Ev.Kill, type, bounty, s)
+    if (type === EnemyType.Warlord && this.splitCount < this.splitPath.length) {
+      const k = this.splitCount++
+      this.splitPath[k] = this.enemies.pathId[s]
+      this.splitDist[k] = this.enemies.dist[s]
+      this.splitWave[k] = wi
+      // Keep the wave open until its Runners are out.
+      if (wi >= 0) this.waveLeft[wi]++
+    }
     this.enemyGone(s)
     this.enemies.kill(s)
   }

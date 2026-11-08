@@ -87,7 +87,7 @@ The game is defined by the rules below. Numbers marked *(tuned)* are starting va
   - The first Warlord on 10.
   - Menders from about 12.
   - After that, waves mix enemy types.
-- **Difficulty never decreases from one wave to the next.** Enemy health and counts rise along set curves, and later waves combine threats so the player has to build a mix of towers.
+- **Difficulty never decreases from one wave to the next.** Enemy health and counts rise along set curves, and later waves combine threats so the player has to build a mix of towers. Difficulty is measured as total threat, so boss waves are spikes that the following waves never fall below. See [ARCHITECTURE.md §4.5](ARCHITECTURE.md).
 - **Wave timing:**
   - Wave 1 starts when the player presses **Next wave**.
   - After a wave finishes spawning, a countdown to the next one begins.

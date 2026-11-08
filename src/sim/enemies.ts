@@ -30,6 +30,8 @@ export class EnemyPool {
   /** Seconds of hit flash left (drawing only). */
   readonly flashT: Float32Array
   readonly waveId: Int16Array
+  /** Seconds until the enemy's ability (Mender heal) fires again. */
+  readonly abilityT: Float32Array
   /** Position now and at the previous step, for render interpolation. */
   readonly x: Float32Array
   readonly y: Float32Array
@@ -67,6 +69,7 @@ export class EnemyPool {
     this.slowT = new Float32Array(capacity)
     this.flashT = new Float32Array(capacity)
     this.waveId = new Int16Array(capacity)
+    this.abilityT = new Float32Array(capacity)
     this.x = new Float32Array(capacity)
     this.y = new Float32Array(capacity)
     this.px = new Float32Array(capacity)
